@@ -33,12 +33,15 @@ def rgetattr(obj, attr, *args):
     return functools.reduce(_getattr, [obj] + attr.split('.'))
 
 class IntermediateLayerGetter:
-    def __init__(self, model, return_layers, keep_output=True):
+
+    CosineSimilarity = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
+
+    def __init__(self, model: torch.nn.Module, return_layers: list, keep_output: bool = True):
         """Wraps a Pytorch module to get intermediate values
         
         Arguments:
             model {nn.module} -- The Pytorch module to call
-            return_layers {dict} -- Dictionary with the selected submodules
+            return_layers {list} -- List with the names of the selected submodules
             to return the output (format: {[current_module_name]: [desired_output_name]},
             current_module_name can be a nested submodule, e.g. submodule1.submodule2.submodule3)
         
@@ -55,7 +58,7 @@ class IntermediateLayerGetter:
             stored in a list.
         """
         self._model = model
-        self.return_layers = return_layers
+        self.return_layers = dict(zip(return_layers, return_layers))
         self.keep_output = keep_output
         
     def __call__(self, *args, **kwargs):
@@ -67,11 +70,11 @@ class IntermediateLayerGetter:
             def hook(module, input, output, new_name=new_name):
                 if new_name in ret:
                     if type(ret[new_name]) is list:
-                        ret[new_name].append(output)
+                        ret[new_name].append(output.detach())
                     else:
-                        ret[new_name] = [ret[new_name], output]
+                        ret[new_name] = [ret[new_name], output.detach()]
                 else:
-                    ret[new_name] = output
+                    ret[new_name] = output.detach()
             try:
                 h = layer.register_forward_hook(hook)
             except AttributeError as e:
@@ -88,3 +91,39 @@ class IntermediateLayerGetter:
             h.remove()
         
         return ret, output
+    
+    @staticmethod
+    def get_layer_names(model, name = ""):
+        children = model.named_children()
+        if len(list(children)) > 0:
+            layer_names = []
+            for child_name, module in model.named_children():
+                layer_names += IntermediateLayerGetter.get_layer_names(module, f"{name}.{child_name}")
+
+            return layer_names
+        
+        else:
+            return [name[1:]]
+        
+
+    @staticmethod
+    def calculate_block_influence(layer_outputs: dict):
+        """
+        Calculate the influence of each block in the model on the final output.
+        
+        Arguments:
+            later_outputs {dict} -- Dictionary with the outputs of the layers in the model.
+        
+        Returns:
+            influence {dict} -- BI for each layer in the model.
+        """
+        layers = list(layer_outputs.keys())
+        bi = dict(zip(layers, len(layers)*[[]]))
+
+        for l in range(len(layers) - 1):
+            if(layer_outputs[layers[l]].shape == layer_outputs[layers[l + 1]].shape):
+                bi[layers[l]] = 1 - IntermediateLayerGetter.CosineSimilarity(layer_outputs[layers[l]].detach(), 
+                                                                            layer_outputs[layers[l + 1]].detach()).detach()
+                
+        return bi
+    
