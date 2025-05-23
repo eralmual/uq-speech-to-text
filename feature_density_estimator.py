@@ -146,6 +146,7 @@ class FeatureDensityEstimator:
             # Extract embeddings for the target audio
             embeddings = self._extract_embeddings(audio, **kwargs)
             # For each layer
+            audio_ood_score = 0
             for k, v in embeddings.items():
                 # Get the layer's histograms and buckets
                 base_histograms = histograms_and_buckets[k][0]
@@ -160,6 +161,10 @@ class FeatureDensityEstimator:
                     # Accumulate the log likelihoods
                     sum_log_likelihoods += torch.log(likelihood_dim_d)
 
-                ood_scores += [-sum_log_likelihoods.item()]
+                # Add layer contribution to audio OOD score
+                audio_ood_score += -sum_log_likelihoods.item()
+
+            # Add audio OOD score to the scores list
+            ood_scores += [audio_ood_score]
 
         return ood_scores
