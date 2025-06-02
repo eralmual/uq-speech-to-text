@@ -10,12 +10,12 @@ class WhisperWrapper():
     """
     Builds and trains a Whisper model.
     """
-    def __init__(self, model_path: str, model_name: str = "openai/whisper-small", sampling_rate: int = 16000, device: torch.device = torch.device("cpu")):
+    def __init__(self, model_name: str = "openai/whisper-small", sampling_rate: int = 16000, device: torch.device = torch.device("cpu")):
         # Load the model
-        self.model = WhisperModel.from_pretrained(os.path.join(model_path, "whisper_1")).to(device)
-        self.model_cond_gen = WhisperForConditionalGeneration.from_pretrained(os.path.join(model_path, "whisper_1")).to(device)
-        self.tokenizer = WhisperTokenizer.from_pretrained(os.path.join(model_path, "tokenizer_1"))
-        self.processor = WhisperProcessor.from_pretrained(os.path.join(model_path, "processor_1"))
+        self.model = WhisperModel.from_pretrained(model_name).to(device)
+        self.model_cond_gen = WhisperForConditionalGeneration.from_pretrained(model_name).to(device)
+        self.tokenizer = WhisperTokenizer.from_pretrained(model_name)
+        self.processor = WhisperProcessor.from_pretrained(model_name)
         self.feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
         # Config the conditional generation model
         self.model_cond_gen.generation_config.language = "spanish"

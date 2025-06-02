@@ -72,14 +72,13 @@ def run_experiment( fde: FeatureDensityEstimator, model_evaluator: WhisperEvalua
         plt.scatter(uq_scores_test, wers)
         plt.xlabel("UQ Score")
         plt.ylabel("WER")
+        plt.savefig(os.path.join(store_dir, f"{exp_name}_partition_{i}.png"))  
         plt.show()
 
-        
         # Store stats
         mean_wers.append(mean_wer)
         std_wers.append(std_wer)
-        pearson_corrs.append(pearson_corr)
-        plt.savefig(os.path.join(store_dir, f"{exp_name}_partition_{i}.png"))        
+        pearson_corrs.append(pearson_corr)      
 
     # Print results
     res = pd.DataFrame({"Partition": partitions, "R": pearson_corrs, "Mean WER": mean_wers, "Std WER": std_wers})
