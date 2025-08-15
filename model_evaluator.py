@@ -65,15 +65,15 @@ class WhisperEvaluator():
         generated_ids = 0
         done = False
         while(not(done)):
-            try:
+            #try:
                 generated_ids = self.model.generate(
                     inputs,
                     forced_decoder_ids=forced_decoder_ids,
                     num_return_sequences=1
                 )
                 done = True
-            except:
-                pass
+            #except:
+            #    pass
 
         #fetch transcriptions in text
         transcriptions = self.processor.tokenizer.batch_decode(generated_ids, skip_special_tokens = False, normalize = True)
