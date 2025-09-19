@@ -1,14 +1,14 @@
 import jiwer
-import torch
 
+from torch import device
 from datasets import Audio
 from tqdm.auto import tqdm
+from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-# Diccionario de palabras sin tilde a palabras con tilde
 
-class WhisperEvaluator():
+class WhisperWrapper():
 
-  def __init__(self, model: torch.nn.Module, processor = None, sampling_rate:int = 16000):
+  def __init__(self, model_name: str, sampling_rate:int = 16000, device: device = device("cpu")):
     """
     Builds an instance of Whisper Evaluator
     param model: whisper model to evaluate
@@ -16,9 +16,17 @@ class WhisperEvaluator():
     param sampling_rate: use 16 Khz by default
     return instance of the class
     """
+    # Store audio sampling rate 
     self.sampling_rate = sampling_rate
-    self.model = model
-    self.processor = processor
+    # Store and configure the model
+    self.model = WhisperForConditionalGeneration.from_pretrained(model_name, return_dict_in_generate=True).to(device)
+    self.processor = WhisperProcessor.from_pretrained(model_name)
+    self.forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="es", task="transcribe")
+    #self.model.generation_config.forced_decoder_ids = None
+    #self.model.generation_config.language = "spanish"
+    #self.model.generation_config.task = "transcribe"
+        
+    # Accents for generation
     self.diccionario_tildes = {
         "proximas": "próximas",
         "tambien": "también",
@@ -47,6 +55,23 @@ class WhisperEvaluator():
       oracion_tildada = " ".join(palabras_tildadas)
       return oracion_tildada
 
+  def __call__(self, audio, return_dict_in_generate: bool = True,
+               output_scores: bool = False, output_hidden_states: bool = True, 
+               output_attentions: bool = True):
+
+    inputs = self.processor.feature_extractor(audio, return_tensors="pt", sampling_rate=self.sampling_rate).input_features.to(self.model.device)
+    output = self.model.generate(
+        inputs,
+        forced_decoder_ids=self.forced_decoder_ids,
+        return_dict_in_generate=return_dict_in_generate,
+        output_scores=output_scores, 
+        output_hidden_states=output_hidden_states,
+        output_attentions=output_attentions,
+        return_legacy_cache=True
+    )
+
+    return output
+
   def transcribe_audio(self, audio_array):
     """Transform the audio to the input using the required representations
     param audio_array: audio array
@@ -56,29 +81,12 @@ class WhisperEvaluator():
     return transcription 
     """
     # Generate input features
-    inputs = self.processor.feature_extractor(audio_array, return_tensors="pt", sampling_rate = self.sampling_rate).input_features.to(self.model.device)
-
-    forced_decoder_ids = self.processor.get_decoder_prompt_ids(language = "es", task = "transcribe")
-    self.model.eval()
-    with torch.no_grad():
-        # Generation was failing for me so had to do this
-        generated_ids = 0
-        done = False
-        while(not(done)):
-            #try:
-                generated_ids = self.model.generate(
-                    inputs,
-                    forced_decoder_ids=forced_decoder_ids,
-                    num_return_sequences=1
-                )
-                done = True
-            #except:
-            #    pass
-
-        #fetch transcriptions in text
-        transcriptions = self.processor.tokenizer.batch_decode(generated_ids, skip_special_tokens = False, normalize = True)
-        #adds accents
-        transcription = self.tildar_oracion(transcriptions[0])
+    generated_ids = self(audio_array, return_dict_in_generate=False, 
+                         output_hidden_states = False, output_attentions = False)
+    # Fetch transcriptions in text
+    transcriptions = self.processor.tokenizer.batch_decode(generated_ids, skip_special_tokens = False, normalize = True)
+    # Adds accents
+    transcription = self.tildar_oracion(transcriptions[0])
     return transcription
 
   def transcribe_dataset(self, dataset_audios):

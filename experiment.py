@@ -8,15 +8,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from tqdm.auto import tqdm
+from typing import Callable
 from dataloader import Dataloader
-from model_evaluator import WhisperEvaluator
-from model_wrapper import WhisperWrapper, IntermediateLayerGetter
-from feature_density_estimator import FeatureDensityEstimator, clear_cache
+from whisper_wrapper import WhisperWrapper
+from feature_density_estimator import FeatureDensityEstimator
 
 
-def run_experiment(exp_name: str, store_dir: str, device: torch.device="cpu",  **kwargs: dict) -> None:
+def run_experiment(exp_name: str, gen_kwargs: dict, device: torch.device="cpu",
+                   top_k: int = 1,
+                   aggregation_fn: Callable = lambda x: torch.cat(x, dim=1).squeeze(),
+                   reduction_fn: Callable = lambda x: torch.flatten(x),
+                   ) -> None:
 
     # Check if the store directory exists
+    store_dir = f"results/{exp_name}"
     os.makedirs(store_dir, exist_ok=True)
 
     mean_wers = []
@@ -31,7 +36,6 @@ def run_experiment(exp_name: str, store_dir: str, device: torch.device="cpu",  *
         # Build the model objects
         model_name = f"danrdz/whisper-finetuned-es-modelo_{id:02d}"
         model_wrapper = WhisperWrapper(model_name, device=device)
-        model_evaluator = WhisperEvaluator(model = model_wrapper.model_cond_gen, processor = model_wrapper.processor)
         fde = FeatureDensityEstimator(model_wrapper)
 
         # Load data
@@ -39,15 +43,20 @@ def run_experiment(exp_name: str, store_dir: str, device: torch.device="cpu",  *
         test_ds, test_audios = Dataloader.load_uq_partitions("test", id, id + 1)
 
         # Use FD training data to estimate feature densities
-        histograms_and_buckets = fde.base_density_estimation(finetune_audios[0], **kwargs)
+        histograms_and_buckets = fde.generate_feature_densities(finetune_audios[0][:100], 
+                                                                top_k, 
+                                                                aggregation_fn,
+                                                                reduction_fn,
+                                                                gen_kwargs)
         
         # Compute the feature density scores
-        uq_scores_test = fde.eval_likelihood(test_audios[0], histograms_and_buckets, **kwargs)
+        uq_scores_test = fde.eval_likelihood(test_audios[0][:10], histograms_and_buckets, 
+                                             gen_kwargs, reduction_fn, aggregation_fn)
         # Compute transcription
-        transcriptions_list, gt_list = model_evaluator.transcribe_dataset(test_ds[0])
+        transcriptions_list, gt_list = model_wrapper.transcribe_dataset(test_ds[0].select(range(10)))
         
         # Fetch WERS
-        wers = model_evaluator.compute_wers(transcriptions_list, gt_list)
+        wers = model_wrapper.compute_wers(transcriptions_list, gt_list)
 
         # Calculate stats
         ids.append(id)
@@ -74,7 +83,7 @@ def run_experiment(exp_name: str, store_dir: str, device: torch.device="cpu",  *
 
     # Print results
     res = pd.DataFrame({"Model ID": ids, "R": pearson_corrs, "Mean WER": mean_wers, "Std WER": std_wers})
-    print(f"Mean R: {res.loc[:, "R"].mean():.4f}, Mean WER: {res.loc[:, "Mean WER"].mean():.4f}, Mean STD WER: {res.loc[:, "Std WER"].mean():.4f}")
+    print(f"Mean R: {res.loc[:, 'R'].mean():.4f}, Mean WER: {res.loc[:, 'Mean WER'].mean():.4f}, Mean STD WER: {res.loc[:, 'Std WER'].mean():.4f}")
     fig.subplots_adjust(hspace=0.5)
     fig.show()
     print("=============== Results ===============\n", res)
@@ -83,41 +92,3 @@ def run_experiment(exp_name: str, store_dir: str, device: torch.device="cpu",  *
     res.to_csv(os.path.join(store_dir,exp_name + ".csv"), index = False)
     fig.savefig(os.path.join(store_dir, f"{exp_name}_results.png"))
     
-
-def identify_influential_layers(model_wrapper: WhisperWrapper, target_layers: list, featured_audios: list) -> dict:
-    # Hook the model on all intermediate results
-    hooked_model = IntermediateLayerGetter(model_wrapper.model, target_layers, keep_output=False)
-    model_wrapper.model.eval()
-    dev = model_wrapper.device
-
-    layer_outputs = {}
-    for audio in tqdm(featured_audios, desc="Processing baseline audios"):
-        
-        # Process the audio
-        input_features = model_wrapper.feature_extractor(audio, return_tensors="pt", sampling_rate = model_wrapper.sampling_rate).input_features.to(dev)
-        decoder_input_ids = torch.tensor([[1, 1]], device=dev) * model_wrapper.model.config.decoder_start_token_id
-        # Get the model output
-        y = hooked_model(input_features, decoder_input_ids = decoder_input_ids)[0]
-        y = IntermediateLayerGetter.calculate_block_influence(y)
-
-        # Free the tensors so we dont run out of memory
-        if(layer_outputs == {}):
-            layer_outputs = copy.deepcopy(y)
-            for k in list(y.keys()):
-                del y[k]
-        else:
-            for k in list(y.keys()):
-                layer_outputs[k] += y[k]
-                del y[k]
-        del y
-        del input_features
-        clear_cache(dev)
-
-    # Average each channel and across all blocks, also remove empty entries
-    layer_outputs = {k: ((v / len(featured_audios)).mean().item() if v != [] else -1) for k, v in layer_outputs.items() }
-    # Remove Nans
-    layer_outputs = {k: v for k, v in layer_outputs.items() if not math.isnan(v)}
-    # Sort the results
-    layer_outputs = dict(sorted(layer_outputs.items(), key=lambda item: item[1], reverse=True))
-
-    return layer_outputs
