@@ -31,7 +31,9 @@ class FeatureDensityEstimator:
     @torch.no_grad()
     def _dataset_embedding_extraction(self, audios: list,
                                       aggregation_fn: Callable,
-                                      gen_kwargs: dict) -> dict:
+                                      gen_kwargs: dict,
+                                      use_decoder: bool,
+                                      use_encoder: bool ) -> dict:
         
         outputs = {"decoder_hidden_states": [], "encoder_hidden_states": []}
 
@@ -43,7 +45,7 @@ class FeatureDensityEstimator:
 
         # Check if the outputs have hidden states
         embeddings = {}
-        if(outputs["decoder_hidden_states"][0] is not None):
+        if((outputs["decoder_hidden_states"][0] is not None) and use_decoder):
             # Generate embeddings per layer by concatenating the output for each token at the specific layer
             decoder_hidden_states = {}
             for layer in range(len(outputs["decoder_hidden_states"][0][0])):
@@ -56,7 +58,7 @@ class FeatureDensityEstimator:
             embeddings["decoder_hidden_states"] = decoder_hidden_states
 
 
-        if(outputs["encoder_hidden_states"] is not None):
+        if((outputs["encoder_hidden_states"] is not None) and use_encoder):
             encoder_hidden_states = {}
             for layer in range(len(outputs["encoder_hidden_states"][0])):
                 encoder_hidden_states[layer] = []
@@ -118,12 +120,13 @@ class FeatureDensityEstimator:
                                     top_k: int,
                                     aggregation_fn: Callable,
                                     reduction_fn: Callable,
-                                    gen_kwargs: dict):
+                                    gen_kwargs: dict, 
+                                    embedding_kwargs: dict):
         """
         Estimate the base density of the data.
         """
         # Extract embeddings for the dataset
-        embeddings = self._dataset_embedding_extraction(audios, aggregation_fn, gen_kwargs)
+        embeddings = self._dataset_embedding_extraction(audios, aggregation_fn, gen_kwargs, **embedding_kwargs)
         # Free GPU memory
         clear_cache(self.model.model.device)
 

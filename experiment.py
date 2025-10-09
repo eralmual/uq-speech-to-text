@@ -14,7 +14,7 @@ from whisper_wrapper import WhisperWrapper
 from feature_density_estimator import FeatureDensityEstimator
 
 
-def run_experiment(exp_name: str, gen_kwargs: dict, device: torch.device="cpu",
+def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict, device: torch.device="cpu",
                    top_k: int = 1,
                    aggregation_fn: Callable = lambda x: torch.cat(x, dim=1).squeeze(),
                    reduction_fn: Callable = lambda x: torch.flatten(x),
@@ -47,7 +47,8 @@ def run_experiment(exp_name: str, gen_kwargs: dict, device: torch.device="cpu",
                                                                 top_k, 
                                                                 aggregation_fn,
                                                                 reduction_fn,
-                                                                gen_kwargs)
+                                                                gen_kwargs,
+                                                                embedding_kwargs)
         
         # Compute the feature density scores
         uq_scores_test = fde.eval_likelihood(test_audios[0][:10], histograms_and_buckets, 
