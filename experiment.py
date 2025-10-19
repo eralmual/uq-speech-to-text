@@ -1,6 +1,4 @@
 import os
-import copy
-import math
 import torch
 
 import numpy as np
@@ -18,7 +16,7 @@ def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict, devi
                    top_k: int = 1,
                    aggregation_fn: Callable = lambda x: torch.cat(x, dim=1).squeeze(),
                    reduction_fn: Callable = lambda x: torch.flatten(x),
-                   ) -> None:
+                   train_size: int = -1, test_size: int = -1) -> None:
 
     # Check if the store directory exists
     store_dir = f"results/{exp_name}"
@@ -42,8 +40,20 @@ def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict, devi
         _, finetune_audios = Dataloader.load_uq_partitions("fine-tune", id, id + 1)
         test_ds, test_audios = Dataloader.load_uq_partitions("test", id, id + 1)
 
+        if(train_size > 0):
+            finetune_audios = finetune_audios[0][:train_size]
+        else:
+            finetune_audios = finetune_audios[0]
+
+        if(test_size > 0):
+            test_audios = test_audios[0][:test_size]
+            test_ds = test_ds[0].select(range(10))
+        else:
+            test_audios = test_audios[0]
+            test_ds = test_ds[0]
+
         # Use FD training data to estimate feature densities
-        histograms_and_buckets = fde.generate_feature_densities(finetune_audios[0][:100], 
+        histograms_and_buckets = fde.generate_feature_densities(finetune_audios, 
                                                                 top_k, 
                                                                 aggregation_fn,
                                                                 reduction_fn,
@@ -51,10 +61,10 @@ def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict, devi
                                                                 embedding_kwargs)
         
         # Compute the feature density scores
-        uq_scores_test = fde.eval_likelihood(test_audios[0][:10], histograms_and_buckets, 
+        uq_scores_test = fde.eval_likelihood(test_audios, histograms_and_buckets, 
                                              gen_kwargs, reduction_fn, aggregation_fn)
         # Compute transcription
-        transcriptions_list, gt_list = model_wrapper.transcribe_dataset(test_ds[0].select(range(10)))
+        transcriptions_list, gt_list = model_wrapper.transcribe_dataset(test_ds)
         
         # Fetch WERS
         wers = model_wrapper.compute_wers(transcriptions_list, gt_list)

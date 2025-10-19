@@ -40,30 +40,34 @@ class FeatureDensityEstimator:
         # Extract embbedings for all audios
         for _, audio in tqdm(enumerate(audios), leave=False, desc="Extracting embeddings", total=len(audios)):
             output = self.model(audio, **gen_kwargs)
-            outputs["decoder_hidden_states"].append(output.decoder_hidden_states)
-            outputs["encoder_hidden_states"].append(output.encoder_hidden_states)
+            if(use_decoder):
+                outputs["decoder_hidden_states"].append(output.decoder_hidden_states)
+            if(use_encoder):
+                outputs["encoder_hidden_states"].append(output.encoder_hidden_states)
+
+            clear_cache(self.model.model.device)
 
         # Check if the outputs have hidden states
         embeddings = {}
-        if((outputs["decoder_hidden_states"][0] is not None) and use_decoder):
+        if(use_decoder):
             # Generate embeddings per layer by concatenating the output for each token at the specific layer
             decoder_hidden_states = {}
             for layer in range(len(outputs["decoder_hidden_states"][0][0])):
                 decoder_hidden_states[layer] = []
                 for audio in range(len(outputs["decoder_hidden_states"])):
                     for token in range(len(outputs["decoder_hidden_states"][audio])):
-                        decoder_hidden_states[layer].append(outputs["decoder_hidden_states"][audio][token][layer].cpu())
+                        decoder_hidden_states[layer].append(outputs["decoder_hidden_states"][audio][token][layer].detach().cpu())
                 decoder_hidden_states[layer] = aggregation_fn(decoder_hidden_states[layer])
             # Store the embeddings
             embeddings["decoder_hidden_states"] = decoder_hidden_states
 
 
-        if((outputs["encoder_hidden_states"] is not None) and use_encoder):
+        if(use_encoder):
             encoder_hidden_states = {}
             for layer in range(len(outputs["encoder_hidden_states"][0])):
                 encoder_hidden_states[layer] = []
                 for audio in range(len(outputs["encoder_hidden_states"])):
-                    encoder_hidden_states[layer].append(outputs["encoder_hidden_states"][audio][layer].cpu())
+                    encoder_hidden_states[layer].append(outputs["encoder_hidden_states"][audio][layer].detach().cpu())
                 encoder_hidden_states[layer] = aggregation_fn(encoder_hidden_states[layer])
             # Store the embeddings
             embeddings["encoder_hidden_states"] = encoder_hidden_states
@@ -96,10 +100,14 @@ class FeatureDensityEstimator:
 
 
         return selected_embeddings 
-
+    
     def _generate_histogram(self, embeddings: dict, reduction_fn: Callable, num_bins: int = 20):
 
         histograms_and_buckets = {}
+        # Values for edge cases
+        torch_zero = torch.tensor([0])
+        #torch_min = torch.tensor([torch.finfo(torch.float32).min])
+        #torch_max = torch.tensor([torch.finfo(torch.float32).max])
 
         # Calculate the histograms for each hstate module
         for hstate, layers in embeddings.items():
@@ -107,16 +115,16 @@ class FeatureDensityEstimator:
             # Generate an histogram for each layer
             for layer, emb in layers.items():
                 # Get a normalized histogram that fills the entire numeric range
-                (hist, buckets) = np.histogram(reduction_fn(emb), bins=num_bins, density=True)
-                # Instead of bin edges, get bin mean
-                buckets = np.convolve(buckets, [0.5, 0.5], mode='valid')
-                # Store data
-                histograms_and_buckets[hstate][layer] = (torch.from_numpy(hist), torch.from_numpy(buckets))
+                (hist, buckets) = torch.histogram(reduction_fn(emb), bins=num_bins, density=True)
+                # Insert extra bins for edge cases 
+                hist = torch.cat([torch_zero, hist, torch_zero], dim=0)
+                # Store data, add epsilon to the histogram
+                histograms_and_buckets[hstate][layer] = (hist + 1e-6, buckets)
 
         return histograms_and_buckets
 
 
-    def generate_feature_densities( self, audios: np.array, 
+    def generate_feature_densities( self, audios: list, 
                                     top_k: int,
                                     aggregation_fn: Callable,
                                     reduction_fn: Callable,
@@ -140,27 +148,6 @@ class FeatureDensityEstimator:
         clear_cache(self.model.model.device)
         
         return histograms_and_buckets
-    
-
-    def _find_closest_bucket(self, vals_feature_all_obs, buckets):
-        """
-        Finds the closest bucket position, according to a set of values (from features) received
-        :param vals_feature_all_obs: values of features received, to map to the buckets
-        :param buckets: buckets of the previously calculated histogram
-        :return: returns the list of bucket numbers closest to the buckets received
-        """
-
-        # create repeated map to do a matrix substraction, unsqueezeing and transposing the feature values for all the observations
-        vals_feature_all_obs = vals_feature_all_obs.unsqueeze(dim=0).transpose(0, 1)
-        # rep mat
-        repeated_vals_dim_obs = vals_feature_all_obs.repeat(1, buckets.shape[0])
-        repeated_vals_dim_obs = repeated_vals_dim_obs.view(-1, buckets.shape[0])
-        # do substraction
-        substracted_all_obs = torch.abs(repeated_vals_dim_obs - buckets)
-        # find the closest bin per observation (one observation per row)
-        min_buckets_all_obs = torch.argmin(substracted_all_obs, 1)
-
-        return min_buckets_all_obs
 
 
     @torch.no_grad()
@@ -177,10 +164,11 @@ class FeatureDensityEstimator:
             # Extract embeddings for the target audio
             outputs = self.model(audio, **gen_kwargs)
             # For each layer
-            audio_ood_score = 0
             for hstate, layers in histograms_and_buckets.items():
                 for layer, hist_and_buck in layers.items():
                     token_emb = []
+                    histogram = hist_and_buck[0]
+                    buckets = hist_and_buck[1]
                     # Encoder module does not generate tokens so indexing is different
                     if(hstate == "encoder_hidden_states"):
                         token_emb = reduction_fn(outputs[hstate][layer].cpu())
@@ -192,17 +180,13 @@ class FeatureDensityEstimator:
                         token_emb = reduction_fn(aggregation_fn(token_emb))
                         
                     # Find the closest bucket to the current feature value
-                    closest_bucket_position = self._find_closest_bucket(token_emb, hist_and_buck[1])
+                    bucket_idxs = torch.bucketize(token_emb, buckets)
                     # Fetch the density (estimated with histograms) of the current dimension
-                    histogram_dim_d = hist_and_buck[0]
-                    likelihood_dim_d = histogram_dim_d[closest_bucket_position] + epsilon
+                    likelihood = torch.gather(histogram, 0, bucket_idxs)
                     # Accumulate the log likelihoods
-                    sum_log_likelihoods += torch.log(likelihood_dim_d).sum()
-
-                # Add layer contribution to audio OOD score
-                audio_ood_score += -sum_log_likelihoods.item()
+                    sum_log_likelihoods += torch.log(likelihood).sum()
 
             # Add audio OOD score to the scores list
-            ood_scores += [audio_ood_score]
+            ood_scores += [-sum_log_likelihoods.item()]
 
         return ood_scores

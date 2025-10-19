@@ -21,10 +21,10 @@ class WhisperWrapper():
     # Store and configure the model
     self.model = WhisperForConditionalGeneration.from_pretrained(model_name, return_dict_in_generate=True).to(device)
     self.processor = WhisperProcessor.from_pretrained(model_name)
-    self.forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="es", task="transcribe")
+    #self.forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="es", task="transcribe")
     #self.model.generation_config.forced_decoder_ids = None
-    #self.model.generation_config.language = "spanish"
-    #self.model.generation_config.task = "transcribe"
+    self.model.generation_config.language = "spanish"
+    self.model.generation_config.task = "transcribe"
         
     # Accents for generation
     self.diccionario_tildes = {
@@ -62,12 +62,13 @@ class WhisperWrapper():
     inputs = self.processor.feature_extractor(audio, return_tensors="pt", sampling_rate=self.sampling_rate).input_features.to(self.model.device)
     output = self.model.generate(
         inputs,
-        forced_decoder_ids=self.forced_decoder_ids,
+        task="transcribe",
+        language="es",
         return_dict_in_generate=return_dict_in_generate,
         output_scores=output_scores, 
         output_hidden_states=output_hidden_states,
         output_attentions=output_attentions,
-        return_legacy_cache=True
+        return_legacy_cache=False,
     )
 
     return output
@@ -140,7 +141,7 @@ class WhisperWrapper():
       wer = jiwer.wer(
                       [gt_text],
                       [transcription_text],
-                      truth_transform=transforms,
+                      reference_transform=transforms,
                       hypothesis_transform=transforms,
                   )
       wers.append(wer)
