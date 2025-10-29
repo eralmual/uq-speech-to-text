@@ -7,7 +7,7 @@ from tqdm.auto import tqdm
 from typing import Callable
 from whisper_wrapper import WhisperWrapper
 
-def clear_cache(device: str):
+def clear_cache(device: torch.device):
     """
     Clear the GPU cache.
     """
@@ -75,7 +75,7 @@ class FeatureDensityEstimator:
         return embeddings
     
     @torch.no_grad()
-    def _block_influence_layer_selector(self, embeddings: dict, top_k: int = 1):
+    def _block_influence_layer_selector(self, embeddings: dict, top_k: int):
 
          
         bi = {}
@@ -90,14 +90,13 @@ class FeatureDensityEstimator:
             # Once we have the BI, sort the dictionary
             bi[hstate_name] = dict(sorted(bi[hstate_name].items(), key=lambda item: item[1], reverse=True))
             # Select the top_k layers
-            tk = top_k
+            tk = top_k if (top_k > 0) else len(bi[hstate_name])
             selected_embeddings[hstate_name] = {}
             for k, _ in bi[hstate_name].items():
-                if(top_k == 0):
+                if(tk == 0):
                     break
                 selected_embeddings[hstate_name][k] = layers[k]
                 tk -= 1
-
 
         return selected_embeddings 
     
@@ -106,8 +105,6 @@ class FeatureDensityEstimator:
         histograms_and_buckets = {}
         # Values for edge cases
         torch_zero = torch.tensor([0])
-        #torch_min = torch.tensor([torch.finfo(torch.float32).min])
-        #torch_max = torch.tensor([torch.finfo(torch.float32).max])
 
         # Calculate the histograms for each hstate module
         for hstate, layers in embeddings.items():
@@ -160,7 +157,6 @@ class FeatureDensityEstimator:
         for audio in tqdm(audios, leave=False, desc="Evaluating likelihood"):
             # Base values
             sum_log_likelihoods = 0
-            epsilon = 1e-6
             # Extract embeddings for the target audio
             outputs = self.model(audio, **gen_kwargs)
             # For each layer
