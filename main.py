@@ -1,5 +1,6 @@
 import torch
-from experiment import run_experiment
+
+from experiment import run_experiment, ExperimentType
 
 gen_kwargs = {  "return_dict_in_generate": True,
                 "output_scores": False, 
@@ -15,10 +16,21 @@ print("Using", dev, "device")
 
 k = 1
 # TBD use max
-run_experiment(f"enc_only-cat-flatten-k{k}", gen_kwargs, embedding_kwargs, 
-               device=dev, top_k=k)
+#run_experiment(f"enc_only-cat-flatten-k{k}", gen_kwargs, embedding_kwargs, device=dev, top_k=k)
 
-k= 5
+test_size = -1
+
+num_iterations = 10
+dropout_rate = 0.05
+run_experiment(f"mcd-{num_iterations}i", {}, {}, exp_type=ExperimentType.MCD, device=dev, num_iterations=num_iterations, test_size=test_size)
+
+temperature = 0.75
+#run_experiment(f"ts-{temperature}t", {}, {}, exp_type=ExperimentType.TS, device=dev, temperature=temperature, test_size=test_size)
+
+#run_experiment(f"smcd-{num_iterations}i-{temperature}t-{dropout_rate}d", {}, {}, exp_type=ExperimentType.SMCD,
+#               device=dev, num_iterations=num_iterations, temperature=temperature, dropout_rate=dropout_rate,
+#               test_size=test_size)
+
 #run_experiment(f"cat-flatten-k{k}", gen_kwargs, dev, k)
 #run_experiment(f"enc_only-cat-flatten-k{k}", gen_kwargs, embedding_kwargs, dev, k)
 
