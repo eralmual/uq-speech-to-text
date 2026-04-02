@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 from enum import Enum
 from tqdm.auto import tqdm
 from typing import Callable
-from datasets import Audio
 from dataloader import Dataloader
 from whisper_wrapper import WhisperWrapper
 from monte_carlo_dropout import MonteCarloDropout
@@ -64,10 +63,12 @@ def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict,
                    aggregation_fn: Callable = lambda x: torch.cat(x, dim=1).squeeze(),
                    reduction_fn: Callable = lambda x: torch.flatten(x), 
                    temperature: float = 0.75, num_iterations: int = 10, dropout_rate: float = 0.05,
-                   train_size: int = -1, test_size: int = -1) -> None:
+                   train_size: int = -1, test_size: int = -1,
+                   start_fold: int = 1, end_fold: int = 11,
+                   output_dir: str = "results") -> None:
 
     # Check if the store directory exists
-    store_dir = f"results/{exp_name}"
+    store_dir = f"{output_dir}/{exp_name}"
     os.makedirs(store_dir, exist_ok=True)
 
     mean_wers = []
@@ -77,7 +78,7 @@ def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict,
     fig, axes = plt.subplots(2, 5, figsize=(16, 4), sharex=True, sharey=True)
 
     # Run experiments for each model
-    for id in tqdm(range(1, 11), desc="Evaluating target models"):
+    for id in tqdm(range(start_fold, end_fold), desc="Evaluating target models"):
 
         # Build the model objects
         model_name = f"danrdz/whisper-finetuned-es-modelo_{id:02d}"
@@ -88,7 +89,7 @@ def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict,
         # Use the number of samples specified
         if(test_size > 0):
             test_audios = test_audios[0][:test_size]
-            test_ds = test_ds[0].select(range(test_size))
+            test_ds = test_ds[0].select(range(10))
         else:
             test_audios = test_audios[0]
             test_ds = test_ds[0]
