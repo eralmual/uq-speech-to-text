@@ -1,11 +1,9 @@
 import torch
 
-from datasets import Audio
-from tqdm.auto import tqdm
-from whisper_wrapper import WhisperWrapper
+from uq_method import UQMethod
 
 
-class TemperatureScaling(WhisperWrapper):
+class TemperatureScaling(UQMethod):
     def __init__(self, model_name: str, temperature: float, sampling_rate: int = 16000, device=torch.device("cpu")):
         super().__init__(model_name, sampling_rate=sampling_rate, device=device)
         self.temperature = temperature
@@ -29,18 +27,3 @@ class TemperatureScaling(WhisperWrapper):
         uncertainty = 1 - probabilities.mean().item()
 
         return transcription, uncertainty
-    
-    def transcribe_dataset(self, dataset_audios: list):
-
-        transcriptions_list = []
-        gt_list = []
-        uncertainties = []
-
-        for audio in tqdm(dataset_audios, desc="Transcribing audio", leave=False):
-            # Transcribe the audio
-            transcription, uncertainty = self.transcribe_audio(audio["audio"]["array"])    
-            transcriptions_list.append(transcription)   
-            uncertainties.append(uncertainty)
-            gt_list.append(audio["sentence"])
-        
-        return transcriptions_list, gt_list, uncertainties

@@ -1,19 +1,25 @@
 
 import torch
 
-from datasets import Audio
-from tqdm.auto import tqdm
-from whisper_wrapper import WhisperWrapper
+from uq_method import UQMethod
 
 
-class MonteCarloDropout(WhisperWrapper):
+class MonteCarloDropout(UQMethod):
     
     def __init__(self, model_name: str, num_iterations: int, dropout_rate: float = 0.1, sampling_rate: int = 16000, device=torch.device("cpu")):
         super().__init__(model_name, dropout=dropout_rate, sampling_rate=sampling_rate, device=device)
         self.num_iterations = num_iterations
 
     def transcribe_audio(self, audio_array):
-        # Enable dropout at inference time
+        # Deterministic prediction: clean eval-mode pass (no dropout) for a fair
+        # WER comparison against the other methods
+        self.model.eval()
+        clean_output = self(audio_array, return_dict_in_generate=True,
+                            output_hidden_states=False, output_attentions=False, output_scores=False)
+        transcriptions = self.processor.tokenizer.batch_decode(clean_output.sequences, skip_special_tokens=False, normalize=True)
+        transcription = self.tildar_oracion(transcriptions[0])
+
+        # Enable dropout at inference time to estimate uncertainty
         self.model.train()
 
         all_probabilities = []
@@ -29,10 +35,6 @@ class MonteCarloDropout(WhisperWrapper):
             max_probs = torch.max(probabilities, dim=2).values
             all_probabilities.append(max_probs)
 
-        # Fetch transcription from last forward pass
-        transcriptions = self.processor.tokenizer.batch_decode(output.sequences, skip_special_tokens=False, normalize=True)
-        transcription = self.tildar_oracion(transcriptions[0])
-
         # Calculate uncertainty as variance across MC iterations
         # Pad to same length since dropout causes variable-length outputs
         max_len = max(p.shape[-1] for p in all_probabilities)
@@ -42,20 +44,5 @@ class MonteCarloDropout(WhisperWrapper):
 
         self.model.eval()
         return transcription, uncertainty
-    
-    def transcribe_dataset(self, dataset_audios: list):
-
-        transcriptions_list = []
-        gt_list = []
-        uncertainties = []
-
-        for audio in tqdm(dataset_audios, desc="Transcribing audio", leave=False):
-            # Transcribe the audio
-            transcription, uncertainty = self.transcribe_audio(audio["audio"]["array"])    
-            transcriptions_list.append(transcription)   
-            uncertainties.append(uncertainty)
-            gt_list.append(audio["sentence"])
-        
-        return transcriptions_list, gt_list, uncertainties
     
     

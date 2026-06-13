@@ -1,4 +1,8 @@
 *csv
 *pyc
-results/
+results/*
+outcmaes/*
 .vscode/
+
+# For the latex build files
+written/**/build*

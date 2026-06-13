@@ -12,8 +12,8 @@ from dataloader import Dataloader
 from whisper_wrapper import WhisperWrapper
 from monte_carlo_dropout import MonteCarloDropout
 from temperature_scaling import TemperatureScaling
-from feature_density_estimator import FeatureDensityEstimator
-from scaled_monte_carlo_dropout import ScaledMonteCarloDropout
+from legacy_fde.feature_density_estimator import FeatureDensityEstimator
+from levenshtein_monte_carlo_dropout import LevenshteinMonteCarloDropout
 
 
 
@@ -21,54 +21,41 @@ class ExperimentType(Enum):
     FDE = 1
     MCD = 2
     TS = 3
-    SMCD = 4
-
-def run_feature_densities_experiment(finetune_audios: list, test_ds: list , test_audios: list, 
-                                     train_size: int, top_k:int, model_wrapper: WhisperWrapper,
-                                     aggregation_fn: Callable, reduction_fn: Callable, 
-                                     gen_kwargs: dict, embedding_kwargs: dict):
-        
-        # Generate aux class for the method
-        fde = FeatureDensityEstimator(model_wrapper)
-
-        # Use the number of samples specified
-        if(train_size > 0):
-            finetune_audios = finetune_audios[0][:train_size]
-        else:
-            finetune_audios = finetune_audios[0]
+    LMCD = 4
 
 
-        # Use FD training data to estimate feature densities
-        histograms_and_buckets = fde.generate_feature_densities(finetune_audios, 
-                                                                top_k, 
-                                                                aggregation_fn,
-                                                                reduction_fn,
-                                                                gen_kwargs,
-                                                                embedding_kwargs)
-        
-        # Compute the feature density scores
-        uq_scores_test = fde.eval_likelihood(test_audios, histograms_and_buckets, 
-                                             gen_kwargs, reduction_fn, aggregation_fn)
-        # Compute transcription
-        transcriptions_list, gt_list, _ = model_wrapper.transcribe_dataset(test_ds)
-        
-        # Fetch WERS
-        wers = model_wrapper.compute_wers(transcriptions_list, gt_list)
-
-        return wers, uq_scores_test
+class DatasetType(Enum):
+    TEST = "test"
+    FINE_TUNE = "fine-tune"
+    CALIBRATION = "calibration"
 
 
-def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict,
-                   exp_type: ExperimentType, device: torch.device="cpu", top_k: int = 1,
-                   aggregation_fn: Callable = lambda x: torch.cat(x, dim=1).squeeze(),
-                   reduction_fn: Callable = lambda x: torch.flatten(x), 
-                   temperature: float = 0.75, num_iterations: int = 10, dropout_rate: float = 0.05,
-                   train_size: int = -1, test_size: int = -1,
-                   start_fold: int = 1, end_fold: int = 11,
-                   output_dir: str = "results") -> None:
+def build_uq_method(exp_type: ExperimentType, model_name: str, temperature: float,
+                    dropout_rate: float, dropout_iterations: int, device: torch.device):
+    """
+    Factory that builds the UQ method matching the requested experiment type.
+    """
+    if exp_type == ExperimentType.TS:
+        return TemperatureScaling(model_name, temperature=temperature, device=device)
+    if exp_type == ExperimentType.MCD:
+        return MonteCarloDropout(model_name, num_iterations=dropout_iterations,
+                                 dropout_rate=dropout_rate, device=device)
+    if exp_type == ExperimentType.LMCD:
+        return LevenshteinMonteCarloDropout(model_name, num_iterations=dropout_iterations,
+                                       dropout_rate=dropout_rate, device=device)
+    raise NotImplementedError("Invalid experiment type: " + str(exp_type.name))
 
+def run_experiment(exp_type: ExperimentType, dataset_type: DatasetType, k_folds: int = 10, sample_size: int = -1,
+                   temperature: float = 0.75, dropout_rate: float = 0.05, dropout_iterations: int = 10, 
+                   output_dir: str = "results", device: torch.device="cpu") -> None:
+
+    exp_name = f"{exp_type.name.lower()}"
+    if(exp_type == ExperimentType.TS):
+        exp_name += f"-temperature_{temperature}"
+    else:
+        exp_name += f"-iterations_{dropout_iterations}-dropout_{dropout_rate}"
     # Check if the store directory exists
-    store_dir = f"{output_dir}/{exp_name}"
+    store_dir = os.path.join(output_dir, f"{exp_name}-dataset_{dataset_type.value}-folds_{k_folds}")
     os.makedirs(store_dir, exist_ok=True)
 
     mean_wers = []
@@ -77,61 +64,25 @@ def run_experiment(exp_name: str, gen_kwargs: dict, embedding_kwargs: dict,
     ids = []
     fig, axes = plt.subplots(2, 5, figsize=(16, 4), sharex=True, sharey=True)
 
-    # Run experiments for each model
-    for id in tqdm(range(start_fold, end_fold), desc="Evaluating target models"):
+    # Load data
+    dataset = Dataloader.load_uq_partitions(dataset_type.value, 1, k_folds + 1)
 
-        # Build the model objects
+    # Run experiments for each fold, this is 1-indexed to match the model naming convention
+    for id in tqdm(range(1, k_folds + 1), desc="Running experiments for each fold"):
+
+        # Build the model name
         model_name = f"danrdz/whisper-finetuned-es-modelo_{id:02d}"
-                
-        # Load data
-        test_ds, test_audios = Dataloader.load_uq_partitions("test", id, id + 1)
 
-        # Use the number of samples specified
-        if(test_size > 0):
-            test_audios = test_audios[0][:test_size]
-            test_ds = test_ds[0].select(range(10))
-        else:
-            test_audios = test_audios[0]
-            test_ds = test_ds[0]
+        # Get fold data
+        dataset_fold = dataset[id - 1]
+        # Optionally subsample the fold for quick tests
+        if(sample_size > 0):
+            dataset_fold = dataset_fold.select(range(min(sample_size, len(dataset_fold))))
 
-        wers = []
-        uq_scores = []
-        if (exp_type == ExperimentType.FDE):
-            model_wrapper = WhisperWrapper(model_name, device=device)
-            # We need fine tune data for FDE
-            _, finetune_audios = Dataloader.load_uq_partitions("fine-tune", id, id + 1)
-            # Call the experiment
-            wers, uq_scores = run_feature_densities_experiment( finetune_audios, test_ds, test_audios, 
-                                                                train_size, top_k, model_wrapper,
-                                                                aggregation_fn, reduction_fn, 
-                                                                gen_kwargs, embedding_kwargs)
-        elif (exp_type == ExperimentType.TS):
-            # Build the TS model
-            ts_model = TemperatureScaling(model_name, temperature=temperature, device=device)
-            # Transcribe audios and get uncertainties
-            transcriptions_list, gt_list, uq_scores = ts_model.transcribe_dataset(test_ds)
-            # Fetch WERS
-            wers = ts_model.compute_wers(transcriptions_list, gt_list)
-
-        elif(exp_type == ExperimentType.MCD):
-            # Build the MCD model
-            mcd_model = MonteCarloDropout(model_name, num_iterations=num_iterations, dropout_rate=dropout_rate, device=device)
-            # Transcribe audios and get uncertainties
-            transcriptions_list, gt_list, uq_scores = mcd_model.transcribe_dataset(test_ds)
-            # Fetch WERS
-            wers = mcd_model.compute_wers(transcriptions_list, gt_list)
-        elif(exp_type == ExperimentType.SMCD):
-            # Build the SMCD model
-            smcd_model = ScaledMonteCarloDropout(model_name, num_iterations=num_iterations, temperature=temperature, dropout_rate=dropout_rate, device=device)
-            # Transcribe audios and get uncertainties
-            transcriptions_list, gt_list, _ = smcd_model.transcribe_dataset(test_ds)
-            total_dist, _, max_lenghts, _ = smcd_model.uncertainty_MCD(transcriptions_list)
-            uq_scores = smcd_model.dividir_distancias(total_dist, max_lenghts)
-            # Fetch WERS
-            wers = smcd_model.compute_wers(transcriptions_list, gt_list)
-            wers = [np.mean(wers[i:i+num_iterations]) for i in range(0, len(wers), num_iterations)]
-        else:
-            raise NotImplementedError("Invalid experiment type: " + str(exp_type.name))
+        # Build the UQ method and run the evaluation
+        uq_model = build_uq_method(exp_type, model_name, temperature,
+                                   dropout_rate, dropout_iterations, device)
+        wers, uq_scores = uq_model.evaluate(dataset_fold)
 
         # Calculate stats
         ids.append(id)

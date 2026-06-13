@@ -6,17 +6,79 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
+from matplotlib.patches import Patch
+
 matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
 
+# Match the font used in written/optim_paper/main.tex (default LaTeX
+# article class -> Computer Modern serif at 11pt).
+matplotlib.rcParams['font.family'] = 'serif'
+matplotlib.rcParams['font.serif'] = ['cmr10', 'Computer Modern Roman', 'DejaVu Serif']
+matplotlib.rcParams['mathtext.fontset'] = 'cm'
+matplotlib.rcParams['axes.formatter.use_mathtext'] = True
+matplotlib.rcParams['axes.unicode_minus'] = False
+matplotlib.rcParams['font.size'] = 11
 
-def load_results(results_dir="results"):
-    """Load all CSV result files from the results directory."""
-    results = {}
-    for csv_path in glob.glob(os.path.join(results_dir, "*", "*.csv")):
-        name = os.path.basename(os.path.dirname(csv_path))
-        results[name] = pd.read_csv(csv_path)
-    return results
+
+def _lower_is_better(metric: str) -> bool:
+    """Return True when a *lower* value of ``metric`` is better.
+
+    Metrics whose name references a word error rate or a generic error are
+    minimised; everything else (e.g. ``R`` correlation) is maximised.
+    """
+    name = metric.lower()
+    return "wer" in name or "error" in name
+
+
+def load_classes(parent_dir: str, metric: str = "R"):
+    """Select the best experiment per class under ``parent_dir``.
+
+    Each immediate subfolder of ``parent_dir`` is treated as a *class*.  Within
+    a class every ``<experiment>/<experiment>.csv`` file is read and ranked by
+    the mean of ``metric``; the best experiment is kept.  Whether "best" means
+    the highest or lowest mean is inferred from the metric name (see
+    :func:`_lower_is_better`).  Classes without any CSV files are skipped.
+
+    Args:
+        parent_dir: directory containing one subfolder per class (e.g. ``optim``).
+        metric: column used to rank experiments within each class.
+
+    Returns:
+        dict mapping ``"<class> (<experiment>)"`` to the chosen experiment's
+        DataFrame.
+    """
+    lower_better = _lower_is_better(metric)
+    chosen: dict[str, pd.DataFrame] = {}
+
+    for class_name in sorted(os.listdir(parent_dir)):
+        class_dir = os.path.join(parent_dir, class_name)
+        if not os.path.isdir(class_dir):
+            continue
+
+        best_df = None
+        best_exp = None
+        best_score = None
+        for csv_path in glob.glob(os.path.join(class_dir, "*", "*.csv")):
+            df = pd.read_csv(csv_path)
+            if metric not in df.columns:
+                continue
+            score = df[metric].mean()
+            if pd.isna(score):
+                continue
+            if (
+                best_score is None
+                or (lower_better and score < best_score)
+                or (not lower_better and score > best_score)
+            ):
+                best_score = score
+                best_df = df
+                best_exp = os.path.basename(os.path.dirname(csv_path))
+
+        if best_df is not None:
+            chosen[f"{class_name} ({best_exp})"] = best_df
+
+    return chosen
 
 
 def plot_summary(results: dict[str, pd.DataFrame], metric: str = "R"):
@@ -72,11 +134,12 @@ def plot_summary(results: dict[str, pd.DataFrame], metric: str = "R"):
         # Mean label
         ax.annotate(
             f"{means[i]:.3f}",
-            xy=(bar.get_x() + bar.get_width() / 2, means[i]),
+            xy=(bar.get_x() + 7*bar.get_width() / 8, means[i] *0.95),
             xytext=(0, 6),
             textcoords="offset points",
             ha="center", va="bottom", fontsize=9, fontweight="bold",
         )
+        """
         # Min label
         ax.annotate(
             f"{mins[i]:.3f}",
@@ -93,18 +156,23 @@ def plot_summary(results: dict[str, pd.DataFrame], metric: str = "R"):
             textcoords="offset points",
             ha="center", va="bottom", fontsize=7, fontweight="bold",
         )
+        """
 
     # Legend: one entry per experiment
-    from matplotlib.patches import Patch
     legend_elements = [Patch(facecolor=colors[i], alpha=0.85, label=labels[i]) for i in range(len(names))]
-    ax.legend(handles=legend_elements)
+    ax.legend(
+        handles=legend_elements,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.48),
+        ncol=min(len(names), 4),
+    )
 
     use_abs = any(is_neg)
     ylabel = f"|{metric}|" if use_abs else metric
 
     ax.set_xlabel("Experiment")
     ax.set_ylabel(ylabel)
-    ax.set_title(f"{metric} Summary (Mean with Min–Max range)")
+    ax.set_title(f"{metric} value between Uncertainty score and WER")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=20, ha="right")
     ax.grid(axis="y", linestyle="--", alpha=0.4)
@@ -117,8 +185,8 @@ if __name__ == "__main__":
     parser.add_argument("-r",
         "--results_dir",
         nargs="?",
-        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"),
-        help="Path to the results folder (default: ./results next to this script)",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "optim"),
+        help="Parent folder whose subfolders are classes (default: ./optim next to this script)",
     )
     parser.add_argument(
         "--metric",
@@ -128,6 +196,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    results = load_results(args.results_dir)
     for m in args.metric:
+        results = load_classes(args.results_dir, metric=m)
         plot_summary(results, metric=m)

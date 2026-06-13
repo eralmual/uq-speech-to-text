@@ -38,7 +38,8 @@ class WhisperWrapper():
         "raton": "ratón",
         "mas":"más",
         "autentico":"auténtico",
-        "termino":"términos",
+        "termino":"término",
+        "terminos":"términos",
         "publico":"público",
         "si":"sí",
         "tu":"tú",
@@ -108,7 +109,7 @@ class WhisperWrapper():
 
     for audio in tqdm(dataset_audios, desc="Transcribing audio", leave=False):
         # Transcribe the audio
-        transcription = self.transcribe_audio(audio["audio"]["array"])    
+        transcription = self.transcribe_audio(audio["audio"])    
         transcriptions_list.append(transcription)   
         gt_list.append(audio["sentence"])
     
