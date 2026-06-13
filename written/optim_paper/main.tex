@@ -1,0 +1,185 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{cite}
+
+%%%% My packages
+\usepackage{todonotes}
+\usepackage{siunitx} 
+\usepackage{pgf}
+\usepackage{import}
+\usepackage{lmodern}      % scalable CM fonts -> removes size-substitution warnings
+\def\mathdefault#1{#1} 
+
+\usepackage[acronym]{glossaries}
+\makeglossaries
+
+\newacronym{ts}{TS}{Temperature Scaling}
+\newacronym{mcd}{MCD}{Monte Carlo Dropout}
+\newacronym{lmcd}{LMCD}{Levenshtein Monte Carlo Dropout}
+\newacronym{cmaes}{CMA-ES}{Covariance Matrix Adaptation Evolution Strategy}
+
+\newacronym{wer}{WER}{Word Error Rate}
+
+
+\newacronym{ue}{UE}{Uncertainty Estimation}
+\newacronym{uq}{UQ}{Uncertainty Quantification}
+\newacronym{asr}{ASR}{Automatic Speech Recognition}
+\newacronym{ai}{AI}{Artificial Intelligence}
+
+\newacronym{ciempiess}{CIEMPIESS}{Corpus de Investigación en Español para Modelos de Procesamiento de Información y Sistemas de Speech}
+
+%%
+%% end of the preamble, start of the body of the document source.
+\begin{document}
+
+\title{\acrshort{cmaes} for Hyperparameter Optimization of Sequence-level Uncertainty Quantification Techniques for \acrshort{asr}}
+
+\author{
+  Erick Alejandro Muñoz-Alvarado\thanks{Instituto Tecnológico de Costa Rica, Cartago, Costa Rica. \texttt{erickmatec@estudiantec.cr}}
+  \and
+  Saúl Calderón Ramírez\thanks{Instituto Tecnológico de Costa Rica, Cartago, Costa Rica.}
+}
+
+\date{}
+
+\maketitle
+
+%%
+%% The abstract is a short summary of the work to be presented in the
+%% article.
+\begin{abstract}
+As \acrshort{ai} deployments move from lab environments into our day to day lives and safety-critical applications, the need for robust \acrshort{uq} methods becomes less of a commodity and more of a requirement. In this work, we investigate the use of \acrfull{cmaes} for optimizing the hyperparameters of three \acrshort{uq} methods, \acrfull{ts}, \acrfull{mcd} using variance and \acrfull{lmcd} using the Levenshtein distance as the uncertainty score, all of them applied to OpenAI's Whisper models for Spanish speech transcription. We evaluate each method's ability to produce uncertainty scores that correlate with actual transcription errors, measured by Pearson correlation between the scores and \acrlong{wer}. We demonstrate that \acrshort{cmaes} effectively navigates the hyperparameter landscape, yielding substantial improvements in calibration quality for each method. Also, our results show that \acrshort{mcd} using Levenshtein distance significantly outperforms both tuned \acrshort{ts} and \acrshort{mcd} with variance. Notably, \acrshort{cmaes} optimization revealed that \acrshort{lmcd} requires extremely low dropout rates to provide meaningful uncertainty estimates.
+\end{abstract}
+
+\noindent\textbf{Keywords:} Uncertainty, Speech-to-Text, Temperature Scaling, Dropout, Transformers, Levenshtein
+
+\listoftodos
+\section{Introduction}
+
+\acrfull{asr} systems have achieved remarkable performance in recent years, driven by large-scale pretrained models such as OpenAI's Whisper \cite{radford2023robust}. These models, particularly when fine-tuned for specific languages and domains, can produce transcriptions with 3\% \acrfull{wer} and in some cases even less as measured by \cite{srivastav2025open}. However, in safety-critical applications like medical dictation, legal transcription, and autonomous systems, knowing when a model is likely to make a mistake is just as important as the quality of the transcription itself\cite{koenecke2024careless}. This motivates the need for reliable \acrfull{ue} methods that can flag potential errors on each transcription.
+
+Several approaches have been proposed for estimating predictive uncertainty in deep learning models. \acrfull{ts} \cite{guo2017calibration} adjusts the softmax distribution's sharpness via a single scalar parameter, providing a lightweight post-hoc calibration method. \acrfull{mcd} \cite{gal2016dropout} leverages dropout at inference time to approximate Bayesian inference, generating a distribution of predictions whose variance serves as an uncertainty estimate. Similar work has used \acrshort{mcd}-based implementations to estimate uncertainty and craft adversarial attacks on ASR systems \cite{jayashankar2020detecting}, in this work we propose the use of a modification to \acrshort{mcd} where the uncertainty score is not the variance of the predictions but the Levenshtein distance between them, which we call \acrfull{lmcd}. 
+
+While these methods have shown promise, a critical yet often overlooked challenge in deploying them is hyperparameter selection, the temperature in \acrshort{ts} and the dropout rate in \acrshort{mcd} dramatically affect the quality of the uncertainty estimates. Grid search and manual tuning are commonly employed but may miss optimal configurations. Moreover, the objective function for maximizing the correlation between uncertainty scores and actual errors is non-differentiable, noisy, and expensive to evaluate, as each evaluation requires running inference across an entire dataset.
+
+\acrfull{cmaes} \cite{hansen2001completely} is a derivative-free optimization algorithm particularly suited to such problems. It maintains a multivariate normal distribution over the search space and adapts both its mean and covariance matrix based on the fitness of sampled candidate solutions, making it robust to noise, non-convexity, and ill-conditioning. \acrshort{cmaes} has been successfully applied to hyperparameter optimization in various machine learning contexts \cite{loshchilov2016cma}\cite{Feurer2019}, but its application to sequence-level \acrshort{uq} hyperparameter tuning in ASR remains unexplored.
+
+In this paper, we present a systematic study of \acrshort{cmaes}-based hyperparameter optimization for three \acrshort{uq} methods applied to speech-to-text tasks in Spanish while using a fine-tuned Whisper model.
+
+We formalize the \acrshort{uq} hyperparameter optimization problem for ASR as a black-box optimization task and apply \acrshort{cmaes} to solve it for \acrshort{ts}, \acrshort{mcd}, and \acrshort{lmcd}.
+We conduct a comprehensive 10-fold cross-validation evaluation on the SpaTrans \acrshort{uq} Bench dataset.
+We demonstrate that \acrshort{cmaes} discovers non-trivial optimal hyperparameter configurations particularly for \acrshort{mcd}, where the optimal dropout rate (0.0032\todo{Fix best dropout value on final pass}) is an order of magnitude lower than commonly used defaults.
+We show that \acrshort{lmcd} with optimized parameters achieves the highest uncertainty-error correlation (mean |R| = 0.8136\todo{Fix best R value on final pass}), establishing it as the most effective \acrshort{uq} method in our comparison.
+
+
+\section{Experiment design}
+
+\subsection{Data}
+
+To guarantee the diversity of data, we leveraged \acrfull{ciempiess}\cite{hernandez2017automatic}, a Spanish corpus with Mexican accent, to build a subsample of 205 audios, all of them were manually revised to correct and validate the transcriptions. This curated sample consists of 26 minutes and 49 seconds of speech.
+We also used the Google Chilean dataset \cite{guevara-rukoz-etal-2020-crowdsourcing}, this included a total of 7 hours of curated conversations in Spanish with Chilean accent, in this case we also sampled 395 audios for a total of 39 minutes and 11 seconds of speech. 
+
+We concatenated both datasets to obtain a total of 600 audios, stored at \SI{16}{\kilo\hertz}, the transcriptions are normalized by removing punctuation, accents, and converting all characters to lowercase. Then performed a 10-fold cross-validation split, using 60\% for fine tuning, 20\% for calibration of the \acrshort{uq} method (if required), and 20\% for testing, ensuring that each fold contains a representative mix of both Mexican and Chilean accents. 
+
+Finally, \SI{50}{\percent} of the calibration and test datasets are contaminated with urban noise audio taken from \footnote{https://huggingface.co/datasets/MichielBontenbal/UrbanSounds}. We use a linear combination of the original audio and noisy recording, with a 0.6 of weight for the noisy audio, and 0.4 for the original to contaminate the aforementioned datasets.
+
+\subsection{Model}
+
+OpenAI's Whisper \cite{radford2023robust} was selected as the base model for our experiments, specifically the "base" variant, which has 74 million parameters and is designed for efficient inference while maintaining strong performance. We fine-tuned the model on the fine-tune portion of each fold for 10\todo{Preguntar a daniel cuantos epoch fueron} epochs using a learning rate of 1e-5\todo{Preguntar a daniel lr} and a batch size of 16\todo{Preguntar a daniel el batch size}, following standard practices for fine-tuning large pretrained models on ASR tasks. The fine-tuning process was performed on an NVIDIA A100 GPU\todo{Preguntar a daniel GPU de fine tuneo}, and we monitored the training loss to ensure convergence without overfitting.
+
+\subsection{Evaluation metrics}
+
+\subsubsection{Word Error Rate}
+This will work as the primary metric for evaluating transcription quality, \acrshort{wer} measures the edit distance between the predicted transcription and the reference transcription, normalized by the number of words in the reference.
+
+\subsubsection{Uncertainty Score}
+This metric is dependent on the \acrshort{uq} method being evaluated the specifics for each method will be detailed on the following sections, but the main idea is that the uncertainty score is a scalar value that represents the model's confidence on its prediction, where higher values indicate less confidence, so in every case we want to minimize this value.
+
+\subsubsection{Pearson Correlation Coefficient (R)}
+In order to evaluate the quality of the uncertainty estimates, we compute the Pearson correlation coefficient between the uncertainty scores produced by each method and the actual \acrshort{wer} for each audio sample in the test set. A higher absolute value of the correlation coefficient indicates a stronger relationship between the uncertainty estimates and the true error rates, which is desirable for effective \acrshort{uq}. 
+Also, we use this metric as the objective function for optimizing hyperparameters of each \acrshort{uq} method, so that we can find the hyperparameter combination that maximizes the relationship between the uncertainty and the \acrshort{wer}.
+
+\subsection{Uncertainty Quantification Methods}
+
+\subsubsection{Temperature Scaling}
+We use \acrshort{cmaes} to optimize the temperature parameter, this is applied as a post-processing step to the model's output probabilities, for each token predicted we capture the highest softmax value and measure the uncertainty as $u = 1 - \frac{1}{N_{tokens}}\sum p_{\text{max}}$. The objective function for optimization is the Pearson correlation coefficient between the scaled uncertainty scores and the actual \acrshort{wer} on the calibration set.
+
+\subsubsection{Monte Carlo Dropout}
+For base \acrshort{mcd}, we apply dropout at inference time and perform 10 stochastic forward passes to obtain a distribution of predictions. The uncertainty score is calculated as the average token-level variance across the multiple passes.
+For this implementation we run into cases where the predicted sequences have different lengths, so we pad them with 0s to the size of the longest prediction.
+We optimize the dropout rate using \acrshort{cmaes} to maximize the Pearson correlation between the variance-based uncertainty scores and the \acrshort{wer}.
+
+\subsubsection{Levenshtein Monte Carlo Dropout}
+In \acrshort{lmcd}, we also perform 10 stochastic forward passes, but instead of using variance, we compute the Levenshtein distance between the predictions from the multiple forward passes, to do this we define the prediction that has the minimum total Levenshtein distance to all other predictions as the medoid. 
+The uncertainty score is defined as the average Levenshtein distance from the medoid to all other predictions normalized by the maximum distance for each prediction. 
+We again use \acrshort{cmaes} to find the optimal dropout rate that maximizes the correlation between these distance-based uncertainty scores and the \acrshort{wer}.
+
+\subsection{Methodology}
+
+Optimization of the hyperparameters for each \acrshort{uq} method was performed using \acrshort{cmaes} with a population size of 5, and 3 generations for each case. The time needed to calibrate the dropout methods was the main constraint to define the population size and the number of generations, as each evaluation required running inference multiple times for each sample in the dataset, it slowed down the optimization process significantly. 
+The search space for the temperature parameter in \acrshort{ts} was defined as $[0.05, 1]$, while for the dropout rate in both \acrshort{mcd} and \acrshort{lmcd}, it was defined as $[0.001, 0.5]$.
+The dataset used for calibration was the same one used to fine tune the models, and the evaluation of the Pearson correlation coefficient was performed on the test set for each fold.
+
+\section{Results}
+
+\begin{figure}[htbp]
+    \centering
+    \resizebox{0.9\linewidth}{!}{\input{imgs/best_results.pgf}}
+    \caption{Pearson correlation coefficient ($|R|$) between the uncertainty score and the \acrshort{wer} for the best configuration of each \acrshort{uq} method found by \acrshort{cmaes}. Bars show the mean across the 10 folds and error bars span the minimum and maximum values.}
+    \label{fig:best_results}
+\end{figure}
+
+\todo{Agregar números del progreso de la optimización por generación y población}
+
+As shown on figure \ref{fig:best_results} the \acrshort{lmcd} method with the optimal dropout rate found by \acrshort{cmaes} achieved the highest mean Pearson correlation coefficient of $0.8136$\todo{Actualizar en el ultimo pass}, indicating a strong relationship between the uncertainty scores and the actual \acrshort{wer}. 
+
+The optimized \acrshort{mcd} method also showed a remarkable performance, with a mean $|R|$ of $0.791$\todo{Actualizar en el ultimo pass}, while the optimized \acrshort{ts} method had a mean $|R|$ of $0.5$\todo{Actualizar en el ultimo pass}. These results demonstrate that \acrshort{cmaes} effectively identified hyperparameter configurations that enhance the calibration quality of each \acrshort{uq} method, with \acrshort{lmcd} emerging as the most effective approach for estimating uncertainty in ASR tasks.
+
+Something remarkable is that \acrshort{lmcd} achieved a significantly lower variance across the folds compared to the other methods, which suggests that this method is more robust to changes in the training and test data, while \acrshort{ts} showed a much higher variance, which could be an indication that this method is more sensitive to the specific data used for calibration and testing.
+
+\begin{figure}[htbp]
+    \centering
+    \resizebox{0.9\linewidth}{!}{\input{imgs/worst_results.pgf}}
+    \caption{Pearson correlation coefficient ($|R|$) between the uncertainty score and the \acrshort{wer} for the worst configuration of each \acrshort{uq} method found by \acrshort{cmaes}. Bars show the mean across the 10 folds and error bars span the minimum and maximum values.}
+    \label{fig:worst_results}
+\end{figure}
+
+The optimal dropout value for both \acrshort{mcd} and \acrshort{lmcd} was found to be extremely low, at $0.0066$ and $0.019$ \todo{Actualizar en el ultimo pass} respectively, which is an order of magnitude lower than commonly used defaults (e.g., $0.1$ or $0.2$). This is especially interesting when compared to \ref{fig:worst_results}, where we see increasing the dropout rate to $0.31$\todo{Actualizar en el ultimo pass} for \acrshort{lmcd} results in a significant drop in the $|R|$ value and a significant increase in the variance of the data.
+
+For \acrshort{lmcd}, we interpret this result as an indication that using high dropout values can lead to unstable predictions by introducing too much noise in the model's output, reducing the dropout value can introduce \textit{just enough} noise so that uncertain predictions diverge from one another, while confident predictions remain similar, which is ideal for this method as it relies on the distance between the predictions to estimate uncertainty. 
+
+Also, we can observe that the most robust method to hyperparameter changes is \acrshort{ts}, as even its worst case scenario is around $5\%$ lower than the best one, while for \acrshort{mcd} and \acrshort{lmcd} the performance hit on the worst case scenario is around $50\%$ or worse than the best one, which shows that these methods are more sensitive to hyperparameter changes, especially \acrshort{lmcd}. This makes sense as the parameter $T$ we are optimizing is pretty much just modulating the probability for each token, whereas dropout is directly affecting the model and testing how much it deviates when faced with noisy samples.
+
+We believe \acrshort{lmcd}'s superiority comes from the fact that the Levenshtein distance\cite{levenshtein1966binary} provides a more accurate measure of prediction differences compared to \acrshort{mcd} using variance for each token, as it measures how different the predictions are from each other, while variance can be affected by outliers and may not capture the true uncertainty in cases where the predictions are consistently wrong but similar to each other.
+
+
+\todo{Correr wilcoxon para comparar cada método y garantizar representatividad estadística de los resultados}
+
+
+\section{Conclusion}
+
+
+Finding that optimal dropout rates are much lower than commonly used defaults highlights the importance of careful hyperparameter tuning for \acrshort{uq} methods, therefore we recommend using similar techniques, only when computational budget is enough to calibrate the method properly, as using default values can lead to suboptimal performance and produce unreliable uncertainty estimates. In cases where computational resources are limited, \acrshort{ts} may be a more robust choice, albeit with lower overall performance compared to the optimized dropout-based methods. In general, the capacity to tune a method becomes more important than the method itself, as we can see that the worst case scenario for \acrshort{ts} is still better than the best case scenario for \acrshort{mcd} and \acrshort{lmcd}.
+
+We demonstrate the effectiveness of \acrshort{cmaes} for optimizing the hyperparameters of three \acrshort{uq} methods applied to ASR tasks, our results show the algorithm effectively navigates the hyperparameter space to find configurations that significantly improve the correlation between uncertainty estimates and actual transcription errors. The superior performance of \acrshort{lmcd} with optimized parameters suggests that distance-based uncertainty estimation can provide more reliable confidence measures in ASR systems compared to traditional variance-based approaches.
+
+Our study focused on a specific ASR model and language, but the insights gained regarding the sensitivity of \acrshort{uq} methods to hyperparameters and the superiority of distance-based uncertainty estimation could have broader implications for other models and tasks. The only catch is that the optimization process is computationally expensive, especially when applied to \acrshort{mcd}-based \acrshort{uq} methods or similar that require multiple inferences.
+
+In general we believe future work could explore the application of \acrshort{cmaes} to other \acrshort{uq} techniques and investigate its effectiveness in different ASR models and languages, as well as exploring more efficient optimization strategies to reduce the computational burden while still effectively navigating the hyperparameter space.
+
+%%
+%% The next two lines define the bibliography style to be used, and
+%% the bibliography file.
+\bibliographystyle{plain}
+\bibliography{refs}
+
+
+\end{document}
+
