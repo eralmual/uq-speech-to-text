@@ -46,7 +46,7 @@ class UQMethod(WhisperWrapper, ABC):
 
         return transcriptions_list, gt_list, uncertainties
 
-    def evaluate(self, dataset: Dataset) -> tuple[list[float], list[float]]:
+    def evaluate(self, dataset: Dataset) -> tuple[list[float], list[float], list[str], list[str]]:
         """
         Transcribe a dataset and compute the per-audio WERs and UQ scores.
 
@@ -55,8 +55,8 @@ class UQMethod(WhisperWrapper, ABC):
         multiple passes per audio) should override this method.
 
         param dataset: dataset with audios and transcriptions
-        return tuple (wers, uq_scores)
+        return tuple (wers, uq_scores, transcriptions, references)
         """
         transcriptions_list, gt_list, uq_scores = self.transcribe_dataset(dataset)
         wers = self.compute_wers(transcriptions_list, gt_list)
-        return wers, uq_scores
+        return wers, uq_scores, transcriptions_list, gt_list

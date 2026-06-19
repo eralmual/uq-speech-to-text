@@ -3,18 +3,13 @@ import torch
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from enum import Enum
 from tqdm.auto import tqdm
-from typing import Callable
 from dataloader import Dataloader
-from whisper_wrapper import WhisperWrapper
 from monte_carlo_dropout import MonteCarloDropout
 from temperature_scaling import TemperatureScaling
-from legacy_fde.feature_density_estimator import FeatureDensityEstimator
 from levenshtein_monte_carlo_dropout import LevenshteinMonteCarloDropout
-
 
 
 class ExperimentType(Enum):
@@ -45,10 +40,9 @@ def build_uq_method(exp_type: ExperimentType, model_name: str, temperature: floa
                                        dropout_rate=dropout_rate, device=device)
     raise NotImplementedError("Invalid experiment type: " + str(exp_type.name))
 
-def run_experiment(exp_type: ExperimentType, dataset_type: DatasetType, k_folds: int = 10, sample_size: int = -1,
+def run_experiment(exp_type: ExperimentType, dataset_type: DatasetType, k_folds: int = 10,  sample_size: int = -1,
                    temperature: float = 0.75, dropout_rate: float = 0.05, dropout_iterations: int = 10, 
                    output_dir: str = "results", device: torch.device="cpu") -> None:
-
     exp_name = f"{exp_type.name.lower()}"
     if(exp_type == ExperimentType.TS):
         exp_name += f"-temperature_{temperature}"
@@ -62,7 +56,7 @@ def run_experiment(exp_type: ExperimentType, dataset_type: DatasetType, k_folds:
     std_wers = []
     pearson_corrs = []
     ids = []
-    fig, axes = plt.subplots(2, 5, figsize=(16, 4), sharex=True, sharey=True)
+    sample_records = []
 
     # Load data
     dataset = Dataloader.load_uq_partitions(dataset_type.value, 1, k_folds + 1)
@@ -82,11 +76,10 @@ def run_experiment(exp_type: ExperimentType, dataset_type: DatasetType, k_folds:
         # Build the UQ method and run the evaluation
         uq_model = build_uq_method(exp_type, model_name, temperature,
                                    dropout_rate, dropout_iterations, device)
-        wers, uq_scores = uq_model.evaluate(dataset_fold)
+        wers, uq_scores, transcriptions, references = uq_model.evaluate(dataset_fold)
 
         # Calculate stats
         ids.append(id)
-        id = id - 1
         wers = np.array(wers)
         uq_scores = np.array(uq_scores)
         if (np.std(uq_scores) == 0):
@@ -100,29 +93,35 @@ def run_experiment(exp_type: ExperimentType, dataset_type: DatasetType, k_folds:
 
         mean_wer = np.mean(wers)
         std_wer = np.std(wers)
-        
-        # Plot results
-        i = id // 5
-        j = id % 5
-        axes[i][j].scatter(uq_scores, wers)
-        axes[i][j].set_xlabel("UQ Score")
-        axes[i][j].set_ylabel("WER")
-        axes[i][j].set_title(f"Model {model_name.split('-')[-1][-2:]}")
-        axes[i][j].grid()
-        
+
+        # Store per-sample stats (UQ score, WER, transcription, reference) so
+        # any plot or further test can be reproduced without re-running inference
+        for sample_idx in range(len(wers)):
+            sample_records.append({
+                "Model ID": id,
+                "Sample": sample_idx,
+                "UQ Score": uq_scores[sample_idx],
+                "WER": wers[sample_idx],
+                "Transcription": transcriptions[sample_idx],
+                "Reference": references[sample_idx],
+            })
+
         # Store stats
         mean_wers.append(mean_wer)
         std_wers.append(std_wer)
         pearson_corrs.append(pearson_corr)     
 
-    # Print results
+    # Per-fold aggregate results
     res = pd.DataFrame({"Model ID": ids, "R": pearson_corrs, "Mean WER": mean_wers, "Std WER": std_wers})
-    print(f"Mean R: {res.loc[:, 'R'].mean():.4f}, Mean WER: {res.loc[:, 'Mean WER'].mean():.4f}, Mean STD WER: {res.loc[:, 'Std WER'].mean():.4f}")
-    fig.subplots_adjust(hspace=0.5)
-    fig.show()
+    print(f"Mean $R$: {res.loc[:, 'R'].mean():.4f}, Mean WER: {res.loc[:, 'Mean WER'].mean():.4f}, Mean Std WER: {res.loc[:, 'Std WER'].mean():.4f}")
     print("=============== Results ===============\n", res)
-    
-    # Store results
-    res.to_csv(os.path.join(store_dir,exp_name + ".csv"), index = False)
-    fig.savefig(os.path.join(store_dir, f"{exp_name}_results.png"))
+
+    # Store per-fold aggregates (one row per model/fold)
+    res.to_csv(os.path.join(store_dir, exp_name + ".csv"), index=False)
+
+    # Store per-sample stats (one row per audio) for later plotting or analysis
+    samples = pd.DataFrame(sample_records,
+                           columns=["Model ID", "Sample", "UQ Score", "WER",
+                                    "Transcription", "Reference"])
+    samples.to_csv(os.path.join(store_dir, f"{exp_name}_samples.csv"), index=False)
     

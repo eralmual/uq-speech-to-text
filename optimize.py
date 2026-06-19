@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import pickle
 
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend so experiment plots don't block
@@ -86,28 +87,35 @@ class UQObjective:
             f"start {self.exp_type.name} {param_name}={param_value:.4f}"
         )
 
-        run_experiment(
-            exp_type=self.exp_type,
-            dataset_type=self.dataset_type,
-            k_folds=self.k_folds,
-            sample_size=self.sample_size,
-            temperature=temperature,
-            dropout_rate=dropout_rate,
-            dropout_iterations=self.dropout_iterations,
-            output_dir=self.output_dir,
-            device=self.device,
-        )
-
         csv_path = result_csv_path(
             self.exp_type, self.dataset_type, self.k_folds,
             temperature, dropout_rate, self.dropout_iterations, self.output_dir,
         )
+
+        if os.path.exists(csv_path):
+            self.logger.info(
+                f"[gen {generation:03d} | ind {individual:02d} | eval {self.eval_count:04d}] "
+                f"reuse existing result {csv_path}"
+            )
+        else:
+            run_experiment(
+                exp_type=self.exp_type,
+                dataset_type=self.dataset_type,
+                k_folds=self.k_folds,
+                sample_size=self.sample_size,
+                temperature=temperature,
+                dropout_rate=dropout_rate,
+                dropout_iterations=self.dropout_iterations,
+                output_dir=self.output_dir,
+                device=self.device,
+            )
+
         df = pd.read_csv(csv_path)
-        mean_r = df["R"].abs().mean()
+        mean_r = df["R"].mean()
 
         self.logger.info(
             f"[gen {generation:03d} | ind {individual:02d} | eval {self.eval_count:04d}] "
-            f"done  {param_name}={param_value:.4f} -> mean |R| = {mean_r:.4f}"
+            f"done  {param_name}={param_value:.4f} -> mean R = {mean_r:.4f}"
         )
 
         self.history.append({
@@ -115,10 +123,10 @@ class UQObjective:
             "individual": individual,
             "eval": self.eval_count,
             param_name: param_value,
-            "mean_abs_R": mean_r,
+            "mean_R": mean_r,
         })
 
-        # CMA-ES minimises, so negate to maximise |R|
+        # CMA-ES minimises, so negate to maximise R
         return -mean_r
 
 
@@ -139,6 +147,8 @@ if __name__ == "__main__":
                         help="Number of samples per fold (-1 = all)")
     parser.add_argument("-o", "--output_dir", type=str, default="optim",
                         help="Output folder for results (default: optim)")
+    parser.add_argument("--no_resume", action="store_true",
+                        help="Ignore any existing checkpoint and start a fresh optimisation")
     args = parser.parse_args()
 
     exp_map = {"ts": ExperimentType.TS, "mcd": ExperimentType.MCD, "lmcd": ExperimentType.LMCD}
@@ -171,24 +181,72 @@ if __name__ == "__main__":
         x0 = [0.05, 0.05]
         bounds = [[0.001, 0.049], [0.99, 0.051]]
 
-    opts = cma.CMAOptions()
-    opts.set("popsize", args.pop_size)
-    opts.set("maxiter", args.n_gen)
-    opts.set("bounds", bounds)
-    opts.set("seed", 42)
+    checkpoint_path = os.path.join(args.output_dir, "cma_checkpoint.pkl")
 
-    es = cma.CMAEvolutionStrategy(x0, 0.5, opts)
+    def save_checkpoint(es, generation, pending):
+        """Persist optimizer state. `pending` captures an in-progress generation
+        (its sampled solutions and the fitnesses computed so far) or is None when
+        the generation boundary is clean."""
+        with open(checkpoint_path, "wb") as fh:
+            pickle.dump({
+                "es": es,
+                "generation": generation,
+                "history": objective.history,
+                "eval_count": objective.eval_count,
+                "pending": pending,
+            }, fh)
 
     generation = 0
+    pending = None
+    if os.path.exists(checkpoint_path) and not args.no_resume:
+        with open(checkpoint_path, "rb") as fh:
+            checkpoint = pickle.load(fh)
+        es = checkpoint["es"]
+        generation = checkpoint["generation"]
+        objective.history = checkpoint["history"]
+        objective.eval_count = checkpoint["eval_count"]
+        pending = checkpoint.get("pending")
+        resume_msg = f"generation={generation}, eval_count={objective.eval_count}"
+        if pending is not None:
+            resume_msg += f", resuming mid-generation at individual {len(pending['fitnesses'])}"
+        logger.info(f"Resuming from checkpoint {checkpoint_path}: {resume_msg}")
+    else:
+        opts = cma.CMAOptions()
+        opts.set("popsize", args.pop_size)
+        opts.set("maxiter", args.n_gen)
+        opts.set("bounds", bounds)
+        opts.set("seed", 42)
+
+        es = cma.CMAEvolutionStrategy(x0, 0.5, opts)
+
     while not es.stop():
-        generation += 1
-        solutions = es.ask()
-        fitnesses = []
-        for individual, x in enumerate(solutions):
-            fitnesses.append(objective.evaluate(x, generation, individual))
+        if pending is not None:
+            # Continue an interrupted generation.
+            solutions = pending["solutions"]
+            fitnesses = pending["fitnesses"]
+        else:
+            generation += 1
+            solutions = es.ask()
+            fitnesses = []
+            pending = {"solutions": solutions, "fitnesses": fitnesses}
+            # Checkpoint the freshly sampled (but not yet evaluated) generation so
+            # the same solutions are restored on resume.
+            save_checkpoint(es, generation, pending)
+
+        for individual in range(len(fitnesses), len(solutions)):
+            fitnesses.append(objective.evaluate(solutions[individual], generation, individual))
+            # Checkpoint after each individual so a mid-generation crash resumes
+            # without re-running already evaluated individuals.
+            save_checkpoint(es, generation, pending)
+
         es.tell(solutions, fitnesses)
         es.logger.add()
         es.disp()
+
+        # Generation complete: clear the pending state and checkpoint the boundary.
+        pending = None
+        save_checkpoint(es, generation, pending)
+        logger.info(f"Saved checkpoint to {checkpoint_path} (generation {generation})")
 
     res = es.result
 
@@ -203,6 +261,6 @@ if __name__ == "__main__":
         logger.info(f"Best temperature:  {res.xbest[0]:.4f}")
     else:
         logger.info(f"Best dropout_rate: {res.xbest[0]:.4f}")
-    logger.info(f"Best mean |R|:     {-res.fbest:.4f}")
+    logger.info(f"Best mean R:     {-res.fbest:.4f}")
     logger.info(f"Total evaluations: {objective.eval_count}")
 
