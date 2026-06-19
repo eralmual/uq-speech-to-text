@@ -1,0 +1,271 @@
+%For spanish we need indentation on the first line
+%\usepackage{indentfirst}
+
+% Allow including PDFs up to v1.7 (e.g. the scanned certificate.pdf)
+\ifdefined\pdfminorversion\pdfminorversion=7\fi
+
+%math package
+\usepackage{amsthm}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{pseudocode}
+
+\newcommand{\lstnumberautorefname}{Listing}
+
+
+\newtheorem{definition}{Definition}[subsection]
+\newcommand{\definitionautorefname}{Definition}
+
+\newtheorem{theorem}{Theorem}[subsection]
+\newtheoremstyle{theorem}{}{}{\itshape}{}{\bfseries}{.}{.5em}{\thmnote{#3's }#1}
+\newcommand{\theoremautorefname}{Theorem}
+
+\newtheorem{lemma}{Lemma}[subsection]
+\newtheoremstyle{lemma}{}{}{\itshape}{}{\bfseries}{.}{.5em}{\thmnote{#3's }#1}
+\newcommand{\lemmaautorefname}{Lemma}
+
+\newtheorem*{remark}{Remark}
+\newcommand{\remarkautorefname}{Remark}
+
+\newcommand{\algorithmautorefname}{Algorithm}
+
+\usepackage{listings}
+
+\lstdefinestyle{customc}{
+  language=C++,
+  belowcaptionskip=1\baselineskip,
+  breaklines=true,
+  frame=l,
+  xleftmargin=\parindent,
+  showstringspaces=false,
+  basicstyle=\linespread{0.9}\scriptsize,
+  emptylines=0,
+  keywordstyle=\scriptsize\ttfamily\bfseries\color{blue!40!black},
+  commentstyle=\mdseries\scriptsize\color{gray!40!black},
+  identifierstyle=\scriptsize\ttfamily\color{darkgray!15!black},
+  stringstyle=\scriptsize\ttfamily\color{green!40!black},
+}
+
+\lstset{style=customc}
+
+\usepackage{textcomp}
+
+%tables
+\usepackage{multirow}
+\usepackage{booktabs}
+%\usepackage[table]{xcolor}
+
+%figures in the exact position as code
+\usepackage{float}
+
+% Prevent latex from expanding to fill page
+\raggedbottom
+
+%Use the margins requested
+\usepackage[hmargin={3.5cm,2.5cm},vmargin=2.5cm]{geometry}
+
+%bold font for caption
+\usepackage[labelfont=bf]{caption}
+
+%\usepackage{digsig}
+
+%Improved bibliography
+\usepackage[round,sort,numbers,authoryear]{natbib}
+\usepackage{usebib}
+\bibpunct{[}{]}{;}{n}{,}{,}
+
+% To define spacing
+\usepackage{setspace}
+
+% We use these packages for making the nice logo on the title page
+\usepackage{graphicx}
+
+% Generate fancy chapter titles
+\usepackage[Sonny]{fncychap}
+\ChNameAsIs
+\ChNumVar{\Large}
+\ChNameVar{\fontsize{50}{60}}
+
+%no word breaking
+%\usepackage[none]{hyphenat}
+\tolerance=1
+\emergencystretch=\maxdimen
+\hyphenpenalty=10000
+\hbadness=10000
+
+%Use Fancy headers
+\usepackage{fancyhdr}
+%\pagestyle{fancy}
+%\fancyhead[LO]{\nouppercase{\leftmark}}
+\lhead{\nouppercase{\rightmark}}
+
+% Generate pretty PDF with links on the TOC
+\usepackage{mdwlist}
+\usepackage{alltt}
+\usepackage[bookmarks=true,linktoc=all, colorlinks=true, pdftitle={\thesistitle}, pdfauthor={\pdfauthor}, pdfsubject={\thesistitle}, pdfkeywords={\thesiskeywords},
+  linkcolor=darkgray,filecolor=darkgray,urlcolor=darkgray,citecolor=darkgray]{hyperref}
+
+
+\addto\extrasenglish{%
+  \renewcommand{\chapterautorefname}{Chapter}%
+  \renewcommand{\sectionautorefname}{Section}%
+  \renewcommand{\subsectionautorefname}{Section}%
+  \renewcommand{\subsubsectionautorefname}{Section}%
+}
+
+\newcommand*{\fullref}[1]{\hyperref[{#1}]{\autoref*{#1}, \nameref*{#1}}} % One single link
+
+\newcommand*{\listingref}[1]{\hyperref[{#1}]{\autoref*{#1} \nameref*{#1} [page~\pageref{#1}]}}
+
+% Allow epigraphs at the beginning of chapters
+\usepackage{epigraph}
+\setlength{\epigraphrule}{0pt}
+\setlength{\afterepigraphskip}{10pt}
+
+% Define abstract environment since it doesn't exists on book class
+\newenvironment{abstract}%
+{\cleardoublepage\null \vfill \begin{center}%
+    \bfseries \abstractname \end{center}}
+{\vfill\null}
+
+% For color definitions
+\usepackage{color}
+
+% Comment this out when is not a draft
+%\usepackage{draftwatermark}
+%\SetWatermarkLightness{0.95}
+%\SetWatermarkFontSize{5cm}
+%\SetWatermarkScale{5}
+%\SetWatermarkText{DRAFT}
+
+% Custom commands
+\newcommand{\HRule}{\rule{\linewidth}{0.5mm}}
+
+
+\usepackage{tcolorbox}
+\usepackage{tabularx}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\usepackage{array}
+\usepackage{colortbl}
+
+\newcolumntype{Y}{>{\raggedleft\arraybackslash}X}
+
+\tcbset{tab1/.style={fonttitle=\bfseries\large,fontupper=\normalsize\sffamily,
+      colback=white!10!white,colframe=red!75!black,colbacktitle=white!40!white,
+      coltitle=black,center title,freelance,frame code={
+          \foreach \n in {north east,north west,south east,south west}
+            {\path [fill=gray!75!black] (interior.\n) circle (3mm); };},}}
+
+\tcbset{tab2/.style={fonttitle=\bfseries,fontupper=\normalsize\sffamily,
+      colback=white!10!white,colframe=gray!50!black,colbacktitle=white!40!white,
+      coltitle=black,center title}}
+
+\usepackage{soul}
+%\include{eshyph.tex}
+\usepackage{tikz}
+\usepackage{verbatim}
+\usetikzlibrary{calc,trees,positioning,arrows,chains,shapes.geometric,%
+  decorations.pathreplacing,decorations.pathmorphing,shapes,%
+  matrix,shapes.symbols}
+
+\tikzset{
+  >=stealth',
+  punktchain/.style={
+      rectangle,
+      rounded corners,
+      % fill=black!10,
+      draw=black, very thick,
+      text width=10em,
+      minimum height=3em,
+      text centered,
+      on chain},
+  line/.style={draw, thick, <-},
+  element/.style={
+      tape,
+      top color=white,
+      bottom color=blue!50!black!60!,
+      minimum width=8em,
+      draw=blue!40!black!90, very thick,
+      text width=10em,
+      minimum height=3.5em,
+      text centered,
+      on chain},
+  every join/.style={->, thick,shorten >=1pt},
+  decoration={brace},
+  tuborg/.style={decorate},
+  tubnode/.style={midway, right=2pt},
+}
+
+\usepackage{pdflscape}
+
+% TODO List support
+
+\usepackage{xargs}                      % Use more than one optional parameter in a new commands
+
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+
+
+\usepackage[colorinlistoftodos,prependcaption,textsize=tiny]{todonotes}
+\newcommandx{\unsure}[2][1=]{\todo[linecolor=red,backgroundcolor=red!25,bordercolor=red,#1]{#2}}
+\newcommandx{\change}[2][1=]{\todo[linecolor=blue,backgroundcolor=blue!25,bordercolor=blue,#1]{#2}}
+\newcommandx{\addsummary}[2][1=]{\todo[linecolor=yellow,backgroundcolor=yellow!25,bordercolor=yellow,#1]{Add summary of: #2}}
+
+\newcommandx{\addmoreinfo}[2][1=]{\todo[linecolor=yellow,backgroundcolor=yellow!25,bordercolor=yellow,#1]{Add more information about: #2}}
+
+\newcommandx{\rewritethis}[2][1=]{\todo[linecolor=pink,backgroundcolor=pink!25,bordercolor=pink,#1]{Rewrite: #2}}
+
+\newcommandx{\improvement}[2][1=]{\todo[linecolor=green,backgroundcolor=green!25,bordercolor=green,#1]{#2}}
+\newcommandx{\thiswillnotshow}[2][1=]{\todo[disable,#1]{#2}}
+
+
+\newcommand{\presentationitem}[1]{%
+  \iftoggle{paper}
+  {
+    \subsubsection{#1}
+  }
+  {
+    \item
+    \def\@currentlabelname{#1}%
+    \textbf{#1}
+  }
+}
+
+\newcommand{\presentationitembig}[1]{%
+  \iftoggle{paper}
+  {
+    \subsection{#1}%
+  }%else
+  {%
+    \item%
+    \textbf{#1:}%
+    \def\@currentlabelname{\emph{#1}}%
+  }
+}
+
+
+\newenvironment{wbstaks}
+{
+}
+{
+}
+
+\newcommand{\presentationbreak}{}
+
+\usetikzlibrary{decorations.text,calc,arrows.meta}
+
+% CSV table support (moved from thesis.tex)
+\usepackage{csvsimple}
+
+% Silence the harmless "No datatool support for dialect" notice that
+% glossaries + babel (english/spanish) emit through tracklang.
+\usepackage{silence}
+\WarningFilter{tracklang}{No}
+
+% Acronyms / glossaries -- load after hyperref
+% nonumberlist: list the acronym definitions only, not page back-references
+% nomain: only the acronym list is used, so skip the (empty) main glossary
+\usepackage[acronym,nonumberlist,nomain]{glossaries}
+
+% Represent units
+\usepackage{siunitx}

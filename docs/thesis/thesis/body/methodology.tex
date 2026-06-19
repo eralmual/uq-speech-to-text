@@ -1,0 +1,154 @@
+
+
+
+\chapter{Methodology}
+\label{chapter:methodology}
+\epigraph{``Another quote.''}{\vspace{10pt}Another Author }
+
+\newpage
+
+This chapter introduces the statistical tools used and details the experiments carried out in this research.
+\section{Experiment Design}
+\label{section:experiment-design}
+
+\subsection{Model}
+
+OpenAI's Whisper \cite{radford2023robust} was selected as the base model for our experiments, specifically the "base" variant, which has 74 million parameters and is designed for efficient inference while maintaining strong performance. We fine-tuned the model on the fine-tune portion of each fold for 600 epochs using a learning rate of 1e-5 and a batch size of 16. The fine-tuning process was performed on an NVIDIA A100 GPU, and we monitored the training loss to ensure convergence without overfitting.
+
+\subsection{Evaluation metrics}
+
+\subsubsection{Word Error Rate}
+\acrshort{wer} is our primary measure of transcription quality. It is the word-level edit distance between the predicted and reference transcriptions, normalized by the number of words in the reference.
+
+\subsubsection{Uncertainty Score}
+The uncertainty score is a scalar that captures how confident the model is in a prediction, with higher values indicating lower confidence. Its precise definition depends on the \acrshort{uq} method and is given in the corresponding section below.
+
+\subsubsection{Pearson Correlation Coefficient (R)}
+In order to evaluate the quality of the uncertainty estimates, we compute the Pearson correlation coefficient between the uncertainty scores produced by each method and the actual \acrshort{wer} for each audio sample in the dataset split under evaluation. A higher value of the correlation coefficient indicates a stronger relationship between the uncertainty estimates and the true error rates, which is desirable for effective \acrshort{uq}.
+Also, we use this metric as the objective function for optimizing hyperparameters of each \acrshort{uq} method, so that we can find the hyperparameter combination that maximizes the relationship between the uncertainty and the \acrshort{wer}.
+
+\subsection{Uncertainty Quantification Methods}
+
+\subsubsection{Temperature Scaling}
+We use \acrshort{cmaes} to optimize the temperature parameter $\tau$, which is applied as a post-processing step to the model's output logits. For each token position $t$ we divide the logits $z_t$ by $\tau$ before the softmax and keep the maximum scaled probability $p_t = \max_v \operatorname{softmax}(z_t / \tau)_v$, as an equivalent to greedy decoding. The uncertainty score is one minus the mean of these maximum probabilities across the sequence:
+\begin{equation}
+	u = 1 - \frac{1}{L}\sum_{t=1}^{L} p_t,
+	\qquad p_t = \max_v \operatorname{softmax}(z_t / \tau)_v,
+\end{equation}
+where $L$ is the length of the predicted sequence. The objective function for optimization is the Pearson correlation coefficient between the scaled uncertainty scores and the actual \acrshort{wer}.
+
+\subsubsection{Monte Carlo Dropout}
+For base \acrshort{mcd}, we apply dropout at inference time and perform $T = 10$ stochastic forward passes to obtain a distribution of predictions. The transcription used to evaluate \acrshort{wer} is produced by the model in evaluation mode, while the stochastic passes are used to estimate uncertainty. For each pass $i$ and token position $t$ we keep the maximum softmax probability $p_{i,t} = \max_v \operatorname{softmax}(z_{i,t})_v$, where $z_{i,t}$ are the logits for that token. The uncertainty score is the average token-level variance across the multiple passes:
+\begin{equation}
+	u = \frac{1}{L}\sum_{t=1}^{L} \frac{1}{T-1}\sum_{i=1}^{T}\left(p_{i,t} - \bar{p}_t\right)^2,
+	\qquad \bar{p}_t = \frac{1}{T}\sum_{i=1}^{T} p_{i,t},
+\end{equation}
+where $L$ is the length of the longest predicted sequence.
+For this implementation we run into cases where the predicted sequences have different lengths, so we pad the per-token probabilities with 0's up to $L$ before computing the variance.
+We optimize the dropout rate using \acrshort{cmaes} to maximize the Pearson correlation between the variance-based uncertainty scores and the \acrshort{wer}.
+
+\subsubsection{Levenshtein Monte Carlo Dropout}
+In \acrshort{lmcd}, we also perform $T = 10$ stochastic forward passes, producing a set of transcriptions $\{s_1, \dots, s_T\}$, but instead of using variance, we compute the Levenshtein distance \cite{levenshtein1966binary} between the predictions. To do this we first define the medoid $s_m$ as the prediction with the minimum total Levenshtein distance to all other predictions:
+\begin{equation}
+	s_m = \operatorname*{arg\,min}_{s_i}\sum_{j=1}^{T} \operatorname{lev}(s_i, s_j).
+\end{equation}
+For this method, the medoid is used as the representative transcription to evaluate the \acrfull{wer}. The uncertainty score is the average Levenshtein\cite{levenshtein1966binary} distance from the medoid to every prediction, each normalized by the length of the longer of the two sequences:
+\begin{equation}
+	u = \frac{1}{T}\sum_{i=1}^{T} \frac{\operatorname{lev}(s_m, s_i)}{\max\left(|s_m|, |s_i|\right)},
+\end{equation}
+where $\operatorname{lev}(\cdot, \cdot)$ is the Levenshtein distance and $|s|$ denotes the character length of sequence $s$.
+We again use \acrshort{cmaes} to find the optimal dropout rate that maximizes the correlation between these distance-based uncertainty scores and the \acrshort{wer}.
+
+\subsubsection{\acrlong{cmaes}}
+We adopt \acrshort{cmaes} \cite{hansen2001completely} as a common optimizer to tune the single hyperparameter of each method. The objective, the Pearson correlation between the uncertainty scores and the \acrshort{wer}, is non-differentiable and noisy to evaluate, which rules out gradient-based tuning; \acrshort{cmaes} is derivative-free and robust to such objectives \cite{loshchilov2016cma}. Using the same optimizer, budget, and protocol for every method ensures that the comparison reflects the methods themselves rather than uneven manual tuning, and the procedure would extend without modification to methods that expose several interacting hyperparameters. The theoretical background of \acrshort{cmaes} is presented in the \nameref{chapter:theoretical-framework} chapter.
+
+
+
+\section{Factors and Levels}
+
+For this experiment we have three factors with various levels each. The first is the uncertainty quantification method, with three levels (\acrshort{mcd}, \acrshort{lmcd} and \acrshort{ts}); the second is the dataset, organized into ten folds; and the third is the correlation metric used to score the methods. The factors and their levels are summarized in Table \ref{tab:main_exp}.\todo{Future: the ``Novel method'' and ``Novel metric'' levels in Table \ref{tab:main_exp} are placeholders for future work.}
+
+\begin{table}[ht]
+	\caption{Main experiment factors}
+	\label{tab:main_exp}
+	\begin{center}
+		\begin{tabular}{|l|l|l|l|}
+			\cline{2-4}
+			\multicolumn{1}{c|}{} & \multicolumn{3}{c|}{Factor}                                      \\
+			\cline{2-4}
+			\multicolumn{1}{c|}{} & Uncertainty quantifier      & Dataset      & Correlation Metric  \\ \hline
+			Levels
+			                      & \acrfull{mcd}               & Partition 1  & Pearson coefficient \\
+			                      & \acrfull{lmcd}              & Partition 2  & Novel metric        \\
+			                      & \acrfull{ts}                & Partition 3  &                     \\
+			                      & Novel method                & Partition 4  &                     \\
+			                      &                             & Partition 5  &                     \\
+			                      &                             & Partition 6  &                     \\
+			                      &                             & Partition 7  &                     \\
+			                      &                             & Partition 8  &                     \\
+			                      &                             & Partition 9  &                     \\
+			                      &                             & Partition 10 &                     \\\hline
+		\end{tabular}
+	\end{center}
+\end{table}
+
+\section{Measures and Combinations of the Experiment}
+The \textbf{table \ref{tab:main_exp}} summarizes the factors and levels used in the main experiment.
+
+
+
+\subsection{Hyperparameter Optimization}
+
+Hyperparameter optimization for each \acrshort{uq} method was performed with \acrshort{cmaes} using a population size of 4 and 5 generations, with the optimizer seed fixed to 42, giving 20 evaluations per method. Each method exposes a single scalar hyperparameter, so the search is effectively one-dimensional. The population size and number of generations were constrained mainly by the cost of calibrating the dropout-based methods, as each evaluation requires running inference several times per sample, which slows the optimization considerably.
+The search space for the temperature parameter in \acrshort{ts} was defined as $[0.01, 2.0]$, while for the dropout rate in both \acrshort{mcd} and \acrshort{lmcd}, it was defined as $[0.001, 0.99]$.
+For each fold, the Pearson correlation coefficient that serves as the optimization objective was computed on the calibration split, whereas the test split was held out and used exclusively for the final evaluation of the selected hyperparameters.
+
+
+
+
+
+
+\section{Response Variable}
+The response variable for each experiment will be the the Pearson coefficient of the relation between the \acrshort{wer} and the uncertainty score predicted by the estimator.
+The expectation is that the uncertainty score will be low when the \acrshort{wer} is low and it will increase linearly as \acrshort{wer} increases in order to be an effective descriptor of the quality of the predictions made by the model.
+
+\section{Description of the Set Up of the Experiments Performed}
+Each experiment evaluates one \acrshort{uq} method with a fixed hyperparameter value across the ten folds. For every fold, the corresponding fine-tuned Whisper model transcribes the fold's audios, the method produces an uncertainty score per audio, and the Pearson correlation between those scores and the per-audio \acrshort{wer} is recorded. During optimization this experiment is run repeatedly while \acrshort{cmaes} searches the hyperparameter space on the calibration split; for the final evaluation it is run once per method on the held-out test split with the selected hyperparameters. The implementation of this pipeline is detailed in the \nameref{chapter:design} chapter.
+
+\section{Description of the inputs of the system}
+
+\subsection{Model Hyperparameters}
+Depending on the \acrshort{uq} method, the system will receive a single scalar hyperparameter that controls the behavior of the method. For \acrshort{ts}, this is the temperature $\tau$ that scales the model's output logits before applying softmax. For both \acrshort{mcd} and \acrshort{lmcd}, this is the dropout rate $d$ that determines the probability of dropping out units during inference.
+
+\subsection{Model inputs}
+The system consumes audio files sampled at \qty{16}{\kilo\hertz}.
+
+
+\section{Data Recollection}
+
+We use the same dataset as \cite{rodriguez2024uncertainty} \acrfull{ciempiess}\cite{hernandez2017automatic}, a Spanish corpus with Mexican accent, to build a subsample of 205 audios, all of them were manually revised to correct and validate the transcriptions. This curated sample consists of \qty{26}{\minute} and \qty{49}{\second} of speech.
+We also used the Google Chilean dataset \cite{guevara-rukoz-etal-2020-crowdsourcing}, this included a total of \qty{7}{\hour} of curated conversations in Spanish with Chilean accent, in this case we also sampled 395 audios for a total of \qty{39}{\minute} and \qty{11}{\second} of speech.
+
+We used both datasets to obtain a total of 600 audios, stored at \qty{16}{\kilo\hertz}, the transcriptions are normalized by removing punctuation, accents, and converting all characters to lowercase. Then performed a 10-fold split, using \qty{60}{\percent} for fine tuning, \qty{20}{\percent} for calibration of the \acrshort{uq} method, and \qty{20}{\percent} for testing, ensuring that each fold contains a representative mix of both Mexican and Chilean accents.
+
+Finally, \SI{50}{\percent} of the calibration and test datasets are contaminated with urban noise audio taken from Urban Sounds\footnote{\UrlFont{https://huggingface.co/datasets/MichielBontenbal/UrbanSounds}}. We use a linear combination of the original audio and noisy recording, with a 0.6 of weight for the noisy audio, and 0.4 for the original to contaminate the aforementioned datasets.
+
+\section{Statistical Tool Used}
+
+The main tool for this work was the Wilcoxon signed-rank test\cite{Wilcoxon1945IndividualCB}, which is a non-parametric statistical hypothesis test used to compare two related samples, matched samples, or repeated measurements on a single sample to assess whether their population mean ranks differ. It is often used as an alternative to the paired Student's t-test when the data cannot be assumed to be normally distributed.
+
+This used to calidate the indicidual method results had a median $R$ different to zero, and to validate each method was statistically different from one another.
+\subsection{Hypothesis of the statistical tool used}
+
+\textbf{Null hypothesis:}
+\begin{enumerate}
+	\item The median Pearson correlation coefficient $R$ between the uncertainty scores and the \acrshort{wer} is equal to zero, indicating no relationship between the two variables.
+	\item There is no statistically significant difference in the Pearson correlation coefficients obtained by different \acrshort{uq} methods, suggesting that all methods perform similarly in terms of their correlation with \acrshort{wer}.
+\end{enumerate}
+
+\textbf{Alternate hypothesis:}
+\begin{enumerate}
+	\item The median Pearson correlation coefficient $R$ between the uncertainty scores and the \acrshort{wer} is different from zero, indicating a significant relationship between the two variables.
+	\item There is a statistically significant difference in the Pearson correlation coefficients obtained by different \acrshort{uq} methods, suggesting that at least one method performs differently in terms of its correlation with \acrshort{wer}.
+\end{enumerate}
+

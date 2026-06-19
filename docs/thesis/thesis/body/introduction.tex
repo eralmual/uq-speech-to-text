@@ -1,0 +1,70 @@
+\chapter{Introduction}
+\label{chapter:introduction}
+
+
+\epigraph{``This can be used as an introductory quote''}{Quote author}
+
+\newpage
+
+\section{Background}
+The proposal of the transformer architecture \cite{vaswani2017attention} has revolutionized the AI field, improving State-of-the-art performance in multiple use cases, among them Speech-to-text tasks with the proposal of Whisper \cite{radford2023robust}. But as much as the architecture improves, there is a limit to what the model can do with a limited amount of data, as explained in \cite{radford2023robust}, out of 680,000 hours of supervised training data, an $82.3\%$ correspond to the english language and the remaining $17.7\%$ is distributed among 96 different languages.
+
+Therefore it becomes critical to understand the performance of these unrepresented languages and the effect the bias in the training data has on the model's generalization capability when exposed to a sample of the underrepresented languages \cite{navigli2023biases}.
+
+This work will focus on analyzing these concerns for the spanish language by using two main datasets, CIEMPIESS \cite{hernandez2017automatic} and the google chilean dataset \cite{guevara-rukoz-etal-2020-crowdsourcing}, in order to test the model with a distribution slightly different from the original english data.
+
+The problem of different training and testing data distributions is referred to as covariate shift \cite{shao2024open}, this work proposes the usage of \acrfull{uq} to asses the reliability of the model's prediction\cite{psaros2023uncertainty}.
+To measure uncertainty, this work evaluates three post-hoc techniques: \acrfull{mcd} \cite{gal2016dropout}, \acrfull{ts} \cite{guo2017calibration}, and a Levenshtein-based variant we refer to as \acrfull{lmcd}, which derives uncertainty from the agreement between repeated stochastic transcriptions \cite{rodriguez2024uncertainty}. Each technique exposes a single hyperparameter that strongly affects the quality of its estimates, so all of them are tuned on equal footing with \acrfull{cmaes} \cite{hansen2001completely} before being compared. The resulting uncertainty scores are then correlated to the \acrfull{wer} to evaluate how good the score provided by each technique really is; ideally, as the uncertainty increases, the \acrshort{wer} should increase as well.
+\todo{Future work: also evaluate \acrfull{fde} \cite{calderon2022dealing} and the proposed novel clear-box method/metric}
+
+\newpage
+
+\section{Problem}
+\label{chapter:introduction:section:problem}
+% Problem context, description and summary goes in this section
+
+
+Modern \acrfull{ai} solutions have proved to be quite effective at a wide range of tasks like image classification \cite{srivastava2024omnivec}\cite{foret2020sharpness}, \acrfull{nlp} \cite{brown2020language}\cite{budagam2024hierarchical} and speech recognition \cite{ma2023auto}\cite{hwang2024fadam}. These solutions all produce a prediction for a given query but there is no way to represent how confident the model is on such predictions, this might be  tolerable for use cases in controlled environments where failures do not imply damage to human beings, or simply where a user can detect them and work around them easily. But as AI solutions get deployed in hospitals or as a solutions in a medical context\cite{klumpp2021artificial} where human lives are at stake, understanding the confidence of the model's prediction becomes increasingly important.
+
+This work will focus on analyzing transformer models trained for \acrfull{asr} tasks, specifically Whisper\cite{radford2023robust} as there have been reports of this model presenting hallucinations when transcribing audios in a medical context \cite{koenecke2024careless}, in some cases presenting a risk to human life.
+
+Given that Whisper was trained with only a $17\%$ of the data on languages other than english\cite{radford2023robust}, one could hypothesize the model should be less confident when doing a task on Spanish for example, and more confident when doing the same task but in english. Because of this, the main focus of this work will be on evaluating the behavior of Whisper when presented to Spanish audios, in order to do this, the \acrfull{ciempiess}\cite{hernandez2017automatic} and the Google Chilean Dataset \cite{guevara-rukoz-etal-2020-crowdsourcing} will be used as the main data source.
+
+
+The next sections will take a deep dive on how to evaluate this hypothesis, starting with the default model predictions, applying multiple confidence (or uncertainty) measures \cite{gal2016dropout}\cite{hinton2015distilling}\cite{calderon2022dealing} and trying to find out the best way to correlate the confidence(or uncertainty) with a given degree of error on the prediction\cite{guo2017calibration} in such a way the end user has information on the validity of the prediction and can react accordingly.
+
+The main findings of this work can be summarized as follows:
+\begin{itemize}
+    \item \acrshort{lmcd} produces uncertainty estimates that correlate substantially more strongly with the \acrshort{wer} than \acrshort{ts} or \acrshort{mcd}, and is the only method that separates from the others by a statistically significant margin.
+    \item The dropout-based methods only become informative at surprisingly low dropout rates, well below the common $0.1$--$0.2$ defaults.
+    \item \acrshort{lmcd} and \acrshort{mcd} remain stable between calibration and test data, whereas \acrshort{ts} degrades the most under this distribution shift.
+\end{itemize}
+
+
+
+
+% --------------------------------------------------------------------------------------
+% ---------------------------- Document Structure --------------------------------------
+% --------------------------------------------------------------------------------------
+\section{Document Structure}
+
+The intent of this document is to start by understanding the structure of the Whisper model \cite{radford2023robust}, analyze the data that will be used to perform the analysis, present the state of the art regarding model explainability, specifically focused at uncertainty or confidence quantification, then apply the state of the art to the target use case (Whisper transcription of audios in Spanish) and correlate the measurement to a degree of error in the prediction. Finally an analysis on the performance of each metric will be made, this will aid the goal of proposing a novel approach to improve on these metrics.
+
+
+The \nameref{chapter:theoretical-framework} chapter will setup the bases needed to understand this work, starting with a little bit of theory into transformers, the architecture of Whisper, how \acrshort{asr} works, then the concepts of uncertainty and confidence what do they mean in this context, how they can be measured and the fundamental differences between the techniques used to measure it, and finally, an analysis on how to correlate the uncertainty or confidence of the model to some degree of correctness in the predictions.
+
+On the \nameref{chapter:introduction:section:problem} section, a brief introduction of the the hypothesis was made, the \nameref{chapter:hypothesis-objectives} chapter will expand on the motivation to evaluate Whisper on underrepresented data, the expected behavior of the model and the specific goals of this investigation.
+
+
+The \nameref{chapter:methodology} chapter will take a deep dive on the reasoning and the step by step description of the experiments executed, the preparation needed (inputs, outputs, techniques, metrics, expectations) to execute each experiment and how this will help achieve the specific objectives defined by this work.
+
+The implementation of the test-bench will be explained in detail on the \nameref{chapter:design} chapter, the specifics on the languages, model versions, libraries and binaries used to execute the measurements and evaluations needed for the data collection.
+
+
+On \nameref{chapter:results} the output of the data collection from the experiments will be presented, this data will drive the \nameref{chapter:discussion} chapter where the information collected on the previous step will be analyzed.
+
+Finally, \nameref{chapter:conclusions-fw} will present the implications of the research along with remarks and conclusions. Next steps, and possible improvements in this work, will also be presented in this chapter.
+
+
+
+

@@ -1,0 +1,34 @@
+
+\chapter{Discussion}
+\epigraph{``Another quote.''}{\vspace{10pt}Another Author}
+\label{chapter:discussion}
+
+\newpage
+
+This chapter presents the analysis and discussion of the results shown in chapter \nameref{chapter:results}.
+
+\section{Interpretation of the Results}
+
+The clearest outcome is that \acrshort{lmcd} produces uncertainty scores that track the \acrshort{wer} substantially better than the two baselines, and that it is the only method separated from the others by a statistically significant margin on both splits. Its advantage over \acrshort{ts} is significant but more modest than its advantage over \acrshort{mcd}, which indicates that the distance-based estimation of \acrshort{lmcd} outperforms both the variance-based estimation of \acrshort{mcd} and the post-hoc calibration of \acrshort{ts}. The fact that \acrshort{mcd} and \acrshort{ts} remain statistically indistinguishable on both splits reinforces that the gain comes specifically from summarizing the disagreement among sampled transcriptions as an edit distance, rather than from sampling alone.
+
+A second observation is the role of hyperparameter tuning. Both dropout-based methods only become informative at dropout rates well below the usual $0.1$--$0.2$ defaults, and \acrshort{mcd} in particular has a narrow region of useful values, outside of which its correlation collapses and its variance across folds grows. \acrshort{lmcd} shares the preference for low dropout but tolerates a wider range, which makes it easier and cheaper to tune. Without a tuning procedure applied on equal footing, this behavior would be easy to miss, and a poorly chosen default would have made the dropout-based methods look far weaker than they are.
+
+A third observation concerns robustness to distribution shift. \acrshort{lmcd} and \acrshort{mcd} keep almost the same correlation when moving from calibration to test data, whereas \acrshort{ts} degrades the most. This is consistent with prior reports that the temperature is tied to the distribution of the calibration data and is therefore sensitive to data shift \cite{yu2022robust}\cite{mozafari2018attended}. In a deployment where the calibration set is not fully representative of the data the model will see, this fragility makes \acrshort{ts} a riskier choice than its low tuning cost might suggest.
+
+\section{Practical Implications}
+
+An uncertainty score that correlates with the \acrshort{wer} at $R \approx \lmcdTestR$ is directly useful: it can flag likely-erroneous transcriptions for human review, or drive a selective-transcription workflow in which only low-confidence utterances are escalated. \acrshort{lmcd} is the most capable of the three methods for this purpose and, like \acrshort{mcd}, it remains stable under distribution shift. The additional inference cost of a dropout-based method, which performs several stochastic passes per audio, is the price for that reliability and is justified when accurate uncertainty matters or the compute budget allows.
+
+\section{On the Hypothesis}
+
+The hypothesis set an aspirational target of a Pearson coefficient of $0.9$. The strongest method evaluated, \acrshort{lmcd}, reaches a mean $R$ of $\lmcdTestR$ (median $0.789$) on the held-out test split, so the absolute target of $0.9$ was not reached. The main objective, however, was framed as improving on the baseline of \cite{rodriguez2024uncertainty} by at least \qty{20}{\percent} in correlation with the \acrshort{wer}, and this was achieved: \acrshort{lmcd} raises the \acrshort{mcd} baseline from $\mcdTestR$ to $\lmcdTestR$, a relative gain of roughly \qty{45}{\percent}. The remaining gap to $0.9$ indicates that, while distance-based scoring is clearly the most informative of the three methods, there is still room for a dedicated method to close the distance, which is left as future work.
+
+\section{Methodological Caveat}
+
+The three methods do not all evaluate the \acrshort{wer} on the same transcription. \acrshort{ts} and \acrshort{mcd} report the \acrshort{wer} of a clean, dropout-free decoding, while \acrshort{lmcd} reports the \acrshort{wer} of the stochastic medoid it selects. This is faithful to each method's definition, but it means the mean \acrshort{wer} differs slightly across methods, so the comparison should be read as a comparison of uncertainty quality given each method's own predicted transcription, rather than over an identical set of transcriptions.
+
+\section{Limitations}
+
+Several limitations bound the scope of these conclusions. First, the SpaTrans \acrshort{uq} Bench comprises roughly 66 minutes of speech across 600 short utterances; while this is enough to expose clear and statistically consistent differences between methods, the absolute $R$ values and optimal hyperparameters may not transfer directly to larger corpora or other domains. Second, the optimization budget was deliberately small, a population of $4$ over $5$ generations, i.e.\ $20$ evaluations per method, dictated by the cost of repeated stochastic inference; a larger budget could refine the optima, particularly for \acrshort{mcd}, whose narrow region of useful dropout values makes it sensitive to under-sampling. Third, each method exposes a single scalar hyperparameter, so the use of \acrshort{cmaes} exercises only a one-dimensional slice of its capabilities, and it was not benchmarked against other tuners such as random \cite{bergstra2012random} or Bayesian \cite{snoek2012practical} search, leaving the most economical optimizer an open question. Fourth, the evaluation relies on the Pearson correlation, which captures linear association; a strongly monotonic but non-linear relationship between uncertainty and \acrshort{wer} could be understated. Finally, all experiments use a single model, Whisper base, and a single language, Spanish, so generalization to other architectures, model sizes, and languages remains to be verified.
+
+

@@ -1,0 +1,147 @@
+\chapter{Design}
+\epigraph{``Another quote.''}{\vspace{10pt}Another Author}
+\label{chapter:design}
+\newpage
+
+This chapter describes the test-bench built to tune and compare the three \acrshort{uq} methods. It covers the software architecture, the algorithms that implement each method, the \acrshort{cmaes} optimization pipeline, and the per-fold evaluation pipeline.
+
+\section{Overview of the Test-Bench}
+
+The test-bench is organized around a single pipeline that is reused for both hyperparameter optimization and final evaluation. For a given \acrshort{uq} method and hyperparameter value, the pipeline loads each fold's fine-tuned Whisper model, transcribes the fold's audios while producing an uncertainty score per audio, and computes the Pearson correlation between those scores and the per-audio \acrshort{wer}. During optimization this pipeline is the objective function that \acrshort{cmaes} repeatedly evaluates on the calibration split; for the final results it is run once per method on the held-out test split. Figure \ref{fig:pipeline} shows the data flow.
+
+\begin{figure}[ht]
+	\centering
+	\begin{tikzpicture}[
+			node distance=0.9cm and 1.8cm,
+			box/.style={draw, rounded corners, align=center, text width=3.4cm, minimum height=0.9cm},
+			data/.style={draw, align=center, text width=3.4cm, minimum height=0.9cm, fill=black!5},
+			>=Stealth
+		]
+		\node[data] (data) {SpaTrans \acrshort{uq} Bench\\(10 folds)};
+		\node[box, below=of data] (whisper) {Fine-tuned Whisper\\(one model per fold)};
+		\node[box, below=of whisper] (uq) {\acrshort{uq} method\\(\acrshort{ts} / \acrshort{mcd} / \acrshort{lmcd})};
+		\node[box, below=of uq] (score) {Uncertainty score\\and \acrshort{wer} per audio};
+		\node[box, below=of score] (corr) {Pearson $R$\\per fold};
+		\node[box, right=of uq] (cmaes) {\acrshort{cmaes}\\hyperparameter search};
+		\draw[->] (data) -- (whisper);
+		\draw[->] (whisper) -- (uq);
+		\draw[->] (uq) -- (score);
+		\draw[->] (score) -- (corr);
+		\draw[->] (corr.east) -| (cmaes.south);
+		\draw[->] (cmaes.north) |- (uq.east);
+	\end{tikzpicture}
+	\caption{Data flow of the test-bench. The vertical chain is run once per fold; \acrshort{cmaes} drives the chain during optimization, feeding a hyperparameter value into the \acrshort{uq} method and receiving the mean Pearson $R$ as fitness.}
+	\label{fig:pipeline}
+\end{figure}
+
+\section{Architecture}
+
+The implementation follows a small class hierarchy that isolates the model handling from the method-specific uncertainty logic, so that every method exposes the same public interface.
+
+\subsection{The \texttt{WhisperWrapper} Base Class}
+\texttt{WhisperWrapper} encapsulates a Whisper model and processor. It configures the model for Spanish transcription, exposes a callable that runs \texttt{generate} and optionally returns per-token logits, and provides helpers to transcribe an audio, transcribe a whole dataset, and compute the per-audio \acrshort{wer} with the \texttt{jiwer} library. The dropout rate is injected at construction time through the model configuration, which is what lets the dropout-based methods enable stochastic inference. A small post-processing step restores Spanish accents on a fixed set of words before the \acrshort{wer} is computed.
+
+\subsection{The \texttt{UQMethod} Template}
+\texttt{UQMethod} is an abstract class that extends \texttt{WhisperWrapper}. It declares a single abstract operation, \texttt{transcribe\_audio}, which every method must implement to return a transcription and its uncertainty score for one audio. The shared \texttt{transcribe\_dataset} and \texttt{evaluate} methods iterate over a dataset, collect the transcriptions and scores, and compute the \acrshort{wer}, so that the only thing a concrete method has to provide is the per-audio uncertainty logic. This template-method design keeps the three methods directly comparable: they differ only in how a single audio is scored, while the dataset iteration, \acrshort{wer} computation, and result aggregation are identical.
+
+\section{Uncertainty Quantification Methods}
+
+Each method is a concrete subclass of \texttt{UQMethod} that overrides \texttt{transcribe\_audio}. The three implementations are described below; their mathematical definitions are given in the \nameref{chapter:methodology} chapter.
+
+\subsection{Temperature Scaling}
+\acrshort{ts} runs a single deterministic decoding pass, scales the per-token logits by the temperature $\tau$, and reports one minus the mean maximum scaled probability as the uncertainty. Algorithm \ref{alg:ts} summarizes the procedure.
+
+\begin{algorithm}[ht]
+	\caption{Temperature Scaling uncertainty score}
+	\label{alg:ts}
+	\begin{algorithmic}[1]
+		\Require audio $x$, temperature $\tau$
+		\State $(\text{ids}, Z) \gets \textsc{Whisper.generate}(x)$ \Comment{token ids and per-token logits}
+		\State $s \gets \textsc{decode}(\text{ids})$
+		\For{each token position $t \in \{1,\dots,L\}$}
+		\State $p_t \gets \max_v \operatorname{softmax}(z_t / \tau)_v$
+		\EndFor
+		\State $u \gets 1 - \frac{1}{L}\sum_{t=1}^{L} p_t$
+		\State \textbf{return} $(s, u)$
+	\end{algorithmic}
+\end{algorithm}
+
+\subsection{Monte Carlo Dropout}
+\acrshort{mcd} first produces a clean transcription with dropout disabled, which is the one used to compute the \acrshort{wer}, and then enables dropout to draw $T$ stochastic decoding passes. Because dropout makes the passes vary in length, the per-token maximum probabilities are padded to a common length before the token-level variance is averaged into a single uncertainty score. Algorithm \ref{alg:mcd} details the steps.
+
+\begin{algorithm}[ht]
+	\caption{Monte Carlo Dropout uncertainty score}
+	\label{alg:mcd}
+	\begin{algorithmic}[1]
+		\Require audio $x$, iterations $T$, dropout rate $d$
+		\State $\textsc{model.eval}()$ \Comment{disable dropout for the reported transcription}
+		\State $s \gets \textsc{decode}(\textsc{generate}(x))$
+		\State $\textsc{model.train}()$ \Comment{enable dropout for the stochastic passes}
+		\For{$i \in \{1,\dots,T\}$}
+		\State $Z_i \gets \textsc{generate}(x)$
+		\State $p_{i,\cdot} \gets \max_v \operatorname{softmax}(Z_i)_v$ \Comment{max probability per token}
+		\EndFor
+		\State pad every $p_{i,\cdot}$ with zeros to the common length $L$
+		\State $u \gets \frac{1}{L}\sum_{t=1}^{L} \operatorname{var}_i\!\left(p_{i,t}\right)$
+		\State \textbf{return} $(s, u)$
+	\end{algorithmic}
+\end{algorithm}
+
+\subsection{Levenshtein Monte Carlo Dropout}
+\acrshort{lmcd} draws the same $T$ stochastic passes but keeps the transcriptions instead of the probabilities. It selects the medoid, the transcription with the smallest total Levenshtein distance to the others, as the representative output, and reports the mean normalized distance from the medoid to every sample as the uncertainty. The medoid is also the transcription used to compute the \acrshort{wer}. Algorithm \ref{alg:lmcd} describes the method.
+
+\begin{algorithm}[ht]
+	\caption{Levenshtein Monte Carlo Dropout uncertainty score}
+	\label{alg:lmcd}
+	\begin{algorithmic}[1]
+		\Require audio $x$, iterations $T$, dropout rate $d$
+		\State $\textsc{model.train}()$ \Comment{enable dropout}
+		\For{$i \in \{1,\dots,T\}$}
+		\State $s_i \gets \textsc{decode}(\textsc{generate}(x))$
+		\EndFor
+		\State $s_m \gets \operatorname*{arg\,min}_{s_i} \sum_{j=1}^{T} \operatorname{lev}(s_i, s_j)$ \Comment{medoid}
+		\State $u \gets \frac{1}{T}\sum_{i=1}^{T} \dfrac{\operatorname{lev}(s_m, s_i)}{\max(|s_m|, |s_i|)}$
+		\State \textbf{return} $(s_m, u)$
+	\end{algorithmic}
+\end{algorithm}
+
+\section{Hyperparameter Optimization Pipeline}
+
+Optimization is implemented as a \acrshort{cmaes} loop around the evaluation pipeline. The objective wraps a single experiment type and exposes a callable that, given a candidate hyperparameter, runs the per-fold evaluation on the calibration split and returns the mean Pearson $R$ across folds. Because \acrshort{cmaes} minimizes, the objective returns the negated mean $R$. Algorithm \ref{alg:cmaes} sketches the loop.
+
+The search uses a population of $4$ over $5$ generations with the optimizer seed fixed to $42$, giving $20$ evaluations per method. Each method exposes a single scalar hyperparameter, bounded to $[0.01, 2.0]$ for the \acrshort{ts} temperature and to $[0.001, 0.99]$ for the \acrshort{mcd} and \acrshort{lmcd} dropout rates. Two engineering details keep the search tractable on a virtual file system: every evaluation is cached by writing its result \acrshort{csv} to a deterministic path and reused if it already exists, and the optimizer state is checkpointed after every generation so an interrupted run can resume.
+
+\begin{algorithm}[ht]
+	\caption{CMA-ES hyperparameter search}
+	\label{alg:cmaes}
+	\begin{algorithmic}[1]
+		\Require experiment type, bounds, population size $\lambda$, generations $G$, seed
+		\State initialize \acrshort{cmaes} with mean $x_0$, step size $\sigma$, bounds, and seed
+		\For{generation $g \in \{1,\dots,G\}$}
+		\State sample candidates $\{x_1,\dots,x_\lambda\}$ from the search distribution
+		\For{each candidate $x_k$}
+		\State $R_k \gets \textsc{EvaluateOnCalibration}(x_k)$ \Comment{mean Pearson $R$ over folds, cached}
+		\State $f_k \gets -R_k$
+		\EndFor
+		\State update the search distribution from $\{(x_k, f_k)\}$
+		\State checkpoint the optimizer state
+		\EndFor
+		\State \textbf{return} the best hyperparameter found
+	\end{algorithmic}
+\end{algorithm}
+
+\section{Evaluation Pipeline}
+
+A single run of the evaluation pipeline iterates over the ten folds. For fold $id$ it loads the matching fine-tuned model \texttt{danrdz/whisper-finetuned-es-modelo\_$id$}, builds the requested \acrshort{uq} method through a small factory, and evaluates the fold, obtaining a \acrshort{wer} and an uncertainty score for every audio. It then records the Pearson $R$ between the scores and the \acrshort{wer}, together with the mean and standard deviation of the \acrshort{wer}. When a method's scores or the \acrshort{wer}s have zero variance, the correlation is undefined and is recorded as zero. The run writes two artifacts per experiment: a per-fold aggregate \acrshort{csv} (\texttt{Model ID}, $R$, mean \acrshort{wer}, std \acrshort{wer}) consumed by the optimizer and the statistical tests, and a per-sample \acrshort{csv} (one row per audio with its score, \acrshort{wer}, transcription, and reference) that allows any plot or further analysis to be reproduced without re-running inference.
+
+\section{Data Loading and Preprocessing}
+
+The data loader downloads the SpaTrans \acrshort{uq} Bench partitions from the Hugging Face Hub and exposes each fold as an audio dataset resampled to \qty{16}{\kilo\hertz}. The reference transcriptions are normalized by removing punctuation and accents and lower-casing the text before the \acrshort{wer} is computed, matching the normalization applied to the predictions. The preparation of the folds, including the accent mix and the urban-noise contamination of half of the calibration and test audios, follows the procedure described in the \nameref{chapter:methodology} chapter.
+
+\section{Limitations and Requirements}
+
+The test-bench requires a \acrshort{cuda}-capable \acrshort{gpu} to run inference at a practical speed, particularly for the dropout-based methods, which perform $T$ stochastic passes per audio and therefore cost roughly $T$ times as much as a single deterministic pass. It also depends on network access to the Hugging Face Hub to fetch the dataset partitions and the per-fold fine-tuned models. These requirements are consistent with the scope and limitations defined in the \nameref{chapter:hypothesis-objectives} chapter.
+
+\section{Implementation}
+
+The complete implementation, including the methods, the optimization loop, and the evaluation pipeline, is available in the project repository.\todo{Add the public Git repository URL.} The fine-tuned models are published on the Hugging Face Hub under \texttt{danrdz/whisper-finetuned-es-modelo\_01} through \texttt{\_10}, and the dataset is published as \texttt{saul1917/SpaTrans\_UQ\_Bench\_raw}.

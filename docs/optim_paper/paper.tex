@@ -148,7 +148,11 @@ To emulate realistic adverse conditions, half of the calibration and test data i
 
 \subsection{Model}
 
-OpenAI's Whisper \cite{radford2023robust} was selected as the base model for our experiments, specifically the "base" variant, which has 74 million parameters and is designed for efficient inference while maintaining strong performance. We fine-tuned the model on the fine-tune portion of each fold for 600\todo{Preguntar a daniel cuantos epoch fueron} epochs using a learning rate of 1e-5\todo{Preguntar a daniel lr} and a batch size of 16\todo{Preguntar a daniel el batch size}. The fine-tuning process was performed on an NVIDIA A100 GPU\todo{Preguntar a daniel GPU de fine tuneo}, and we monitored the training loss to ensure convergence without overfitting.
+OpenAI's Whisper \cite{radford2023robust} was selected as the base model for our experiments, specifically the "base" variant, which has 74 million parameters and is designed for efficient inference while maintaining strong performance. We fine-tuned the model on the fine-tune portion of each fold for 600 epochs using a learning rate of 1e-5, a batch size of 16 and early stopping. The fine-tuning process was performed on an NVIDIA A100 GPU, and we monitored the training loss to ensure convergence without overfitting.
+%\todo{Preguntar a daniel lr}
+%\todo{Preguntar a daniel cuantos epoch fueron}
+%\todo{Preguntar a daniel el batch size}
+%\todo{Preguntar a daniel GPU de fine tuneo}
 
 \subsection{Evaluation metrics}
 
@@ -194,7 +198,7 @@ For this method, the medoid is used as the representative transcription to evalu
 where $\operatorname{lev}(\cdot, \cdot)$ is the Levenshtein distance and $|s|$ denotes the character length of sequence $s$.
 We again use \acrshort{cmaes} to find the optimal dropout rate that maximizes the correlation between these distance-based uncertainty scores and the \acrshort{wer}.
 
-\subsection{Methodology}
+\subsection{Hyperparameter Optimization}
 
 Hyperparameter optimization for each \acrshort{uq} method was performed with \acrshort{cmaes} using a population size of 4 and 5 generations, with the optimizer seed fixed to 42. Each method exposes a single scalar hyperparameter, so the search is effectively one-dimensional; we nonetheless adopt \acrshort{cmaes} for its robustness to the noisy, non-differentiable objective, and because the same procedure would extend without modification to methods that expose several interacting hyperparameters. The population size and number of generations were constrained mainly by the cost of calibrating the dropout-based methods, as each evaluation requires running inference several times per sample, which slows the optimization considerably.
 The search space for the temperature parameter in \acrshort{ts} was defined as $[0.01, 2.0]$, while for the dropout rate in both \acrshort{mcd} and \acrshort{lmcd}, it was defined as $[0.001, 0.99]$.

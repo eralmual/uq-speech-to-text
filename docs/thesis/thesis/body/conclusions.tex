@@ -1,0 +1,38 @@
+\chapter{Conclusions and Future Work}
+\epigraph{``Another quote.''}{\vspace{10pt}Another author}
+\label{chapter:conclusions-fw}
+
+\newpage
+
+This chapter presents the final conclusions obtained through the research effort and the future work that can be derived.
+
+\section{Conclusions}
+
+\begin{itemize}
+
+    \item Three sequence-level \acrshort{uq} methods for Spanish \acrshort{asr}, \acrshort{ts}, \acrshort{mcd}, and \acrshort{lmcd}, were tuned under a common \acrshort{cmaes} protocol and compared. \acrshort{lmcd} produces uncertainty scores that track the \acrshort{wer} substantially better than the two baselines and is the only method separated from them by a statistically significant margin on both the calibration and the test splits.
+
+    \item Tuning on equal footing was instrumental in reaching this conclusion. The dropout-based methods only become informative at dropout rates far below the usual $0.1$--$0.2$ defaults, which underscores how sensitive the quality of an uncertainty estimate is to a single hyperparameter and how misleading an untuned comparison would have been.
+
+    \item \acrshort{lmcd} and \acrshort{mcd} remain stable when moving from calibration to test data, whereas \acrshort{ts} degrades the most; the temperature is tied to the calibration distribution and is therefore the most fragile under distribution shift.
+
+    \item At a correlation of $R \approx \lmcdTestR$ with the \acrshort{wer}, the \acrshort{lmcd} score is practically useful for flagging likely-erroneous transcriptions for human review or for driving selective transcription, at the cost of the extra inference required by the stochastic passes.
+
+    \item The aspirational target of a Pearson coefficient of $0.9$ was not reached, but the main objective of improving on the baseline of \cite{rodriguez2024uncertainty} by at least \qty{20}{\percent} was met, with \acrshort{lmcd} improving the \acrshort{mcd} baseline by roughly \qty{45}{\percent} on the test split.
+
+\end{itemize}
+
+
+\section{Future Work}
+
+\begin{itemize}
+    \item Validate these findings on larger corpora, additional languages, and larger Whisper variants, to confirm that the ranking and the very low optimal dropout rates generalize beyond the current setting.
+
+    \item Explore cheaper tuning strategies for the dropout-based methods and benchmark \acrshort{cmaes} against other tuners such as random \cite{bergstra2012random} and Bayesian \cite{snoek2012practical} search.
+
+    \item Align the reported transcription across methods so that the \acrshort{wer} is computed on the same prediction for every method, strengthening direct comparison.
+
+    \item Extend the evaluation to other agreement-based tasks, such as machine translation and open-ended generation, where the same distance-based scoring may apply.
+
+    \item \todo{Future thread: propose a dedicated novel clear-box method to close the remaining gap to $0.9$, propose one or more reliability metrics beyond Pearson correlation, and evaluate \acrfull{fde} alongside the current methods.}
+\end{itemize}

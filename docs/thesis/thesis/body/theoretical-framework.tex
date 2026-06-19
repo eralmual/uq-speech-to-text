@@ -1,0 +1,149 @@
+\chapter{Theoretical Framework}
+\label{chapter:theoretical-framework}
+
+\epigraph{``Another quote goes here''}{\vspace{10pt}Other author}
+
+\newpage
+
+\section{Speech Recognition with Transformers}\label{sec:asr_transformers}
+
+\acrfull{asr} is the task of mapping an audio signal to its textual transcription. Modern \acrshort{asr} systems are dominated by the transformer architecture, and this work studies one such system, Whisper\cite{radford2023robust}, evaluated with the \acrfull{wer}. This section introduces these three building blocks.
+
+\subsection{The Transformer Architecture}
+The transformer architecture \cite{vaswani2017attention} replaced recurrence with self-attention, allowing every position in a sequence to attend directly to every other position. A transformer is built from stacked encoder and decoder blocks, each combining a multi-head self-attention layer with a position-wise feed-forward network, together with residual connections and layer normalization. The self-attention mechanism computes, for each token, a weighted sum of the value vectors of all tokens, where the weights are given by the scaled dot product between query and key vectors:
+\begin{equation}
+   \operatorname{Attention}(Q, K, V) = \operatorname{softmax}\left(\frac{Q K^\top}{\sqrt{d_k}}\right) V,
+\end{equation}
+where $Q$, $K$, and $V$ are the query, key, and value matrices and $d_k$ is the dimension of the key vectors. Because attention is computed in parallel across the sequence, transformers train efficiently on large corpora, which underlies their adoption across natural language processing, computer vision, and speech.
+
+\subsection{Whisper}
+Whisper \cite{radford2023robust} is an encoder-decoder transformer trained for \acrshort{asr} and speech translation. The encoder consumes a log-Mel spectrogram of the input audio and produces a sequence of hidden representations; the decoder is an autoregressive language model that attends to those representations and emits text tokens one at a time. Whisper was trained on 680,000 hours of weakly supervised multilingual audio collected from the web, which makes it robust to a wide range of recording conditions without dataset-specific adaptation. However that training data is, dominated by English: only about \qty{17}{\percent} of it covers the remaining 96 languages \cite{radford2023robust}, so its transcription quality on under-represented languages such as Spanish is comparatively weaker, which is precisely the regime this work studies. Although Whisper reaches low error rates on benchmark data \cite{srivastav2025open}, it still fails in ways that are hard to anticipate, including fluent but entirely fabricated transcriptions \cite{koenecke2024careless}, which makes per-utterance error flagging valuable. We use the \texttt{base} variant, a 74-million-parameter model, fine-tuned on Spanish audio.
+
+\subsection{Word Error Rate}
+The \acrfull{wer} is the standard measure of transcription quality. It is the word-level edit distance between the predicted transcription and the reference, normalized by the number of words in the reference:
+\begin{equation}
+   \mathrm{WER} = \frac{S + D + I}{N},
+\end{equation}
+where $S$, $D$, and $I$ are the numbers of substitutions, deletions, and insertions required to turn the prediction into the reference, and $N$ is the number of words in the reference. A \acrshort{wer} of $0$ denotes a perfect transcription, while values approaching or exceeding $1$ denote increasingly erroneous output. Throughout this work the \acrshort{wer} is the quantity that a good uncertainty score should track.
+
+\section{Uncertainty Quantification}\label{sec:unc_quantif}
+
+
+%reescribí mejor esta sección 
+
+Speech recognition applications aim to generate a text transcription from audio. Given a dataset $D = \{(x, y)\}$ where $D \in X \times Y$, $X$ consists of an audio dataset, which has a specific representation, and $Y$ represents the real transcription of the audio dataset. From a specific pre-training, the goal is to generate a prediction, i.e., to obtain $\hat{y}$ from a test audio $x^{*}$ which corresponds to a specific (true) transcription $y^{*}$.
+
+The model’s uncertainty can be represented by the conditional probability in \eqref{cond}, where the goal is to calculate this conditional probability from the observed data $X$ and $Y$ and a test audio $x^{*}$.
+
+\begin{equation}  \label{cond}
+   p(y^* | x^*, D) \equiv p(y^* | x^*, X, Y)
+\end{equation}
+
+As proposed by \cite{mena2021survey}, uncertainty can be modeled through an intermediate model with parameters $W$, according to equation \ref{eq1}.
+
+\begin{equation}  \label{eq1}
+   p(y^* \mid x^{*}, X, Y) = \int p(y^{*} \mid W, x^{*}, X, Y) p(W \mid x^{*}, X, Y)  dW
+\end{equation}
+
+Now, this equation can be simplified based on two assumptions:
+
+\begin{itemize}
+   \item \textbf{Assumption 1:} When the model learns $W$, there is no access to the test data $x^{*}$, so it can be approximated as: $ p(W \mid x^*,X,Y) \approx p(W \mid X,Y) $.
+   \item \textbf{Assumption 2:} It is assumed that the model parameterized by $W$ is capable of capturing the true distributions over $X, Y$. In other words, it is assumed that the model can effectively capture the complexities of the audio data and the corresponding transcriptions, allowing for accurate generalization to new audio data instances. Under this assumption, the conditional output distribution can be approximated as:  $p(y^{*} \mid W, x^{*}, X, Y)  \approx  p(y^{*} \mid W, x^{*})$.
+\end{itemize}
+
+Thus, equation \ref{eq1} can be simplified to:
+
+\begin{equation}  \label{eq2}
+   p(y^{*} \mid x^{*}, X, Y) \approx \int p(y^{*} \mid W, x^{*})  p(W \mid X, Y) dW
+\end{equation}
+
+
+
+
+
+
+
+\subsection{Epistemic Uncertainty}
+The first category of uncertainty refers to a lack-of-knowledge. It is possible that the available data samples are not enough for the model to capture the knowledge contained in the data. A different perspective is that the model is not the best suited to capture the knowledge contained in the data. Any of the described cases lead to a lack-of-confidence in the results of the model due to the failed transfer of knowledge. This type of uncertainty reduces as the amount of data available to the model increases or as the model complexity (by tuning the architecture or fine-tuning of the hyper parameters) rises. Since there are ways to manage the lack-of-confidence of the model results, epistemic uncertainty is known as reducible uncertainty \cite{mena2021survey}.
+
+\subsection{Aleatoric Uncertainty}
+This is the category when the source of uncertainty is the statistical variability present in the data. One possible perspective to classify uncertainty as aleatoric is that the data contains statistical variability from the measurement process (homocedastic uncertainty). Another approach is that the noise depends on the inputs (heterocedastic uncertainty). The source of uncertainty in this case is the data measurement process or the data generation process. Since the aleatoric uncertainty is intrinsic to the data, it is not possible to reduce it, then its called irreducible uncertainty \cite{mena2021survey}.
+
+Other views on uncertainty refer to the distribution of the data. The main idea is that this uncertainty is reflects the dynamic nature of the data. The assumption is that the data points are a snapshot, but the data actually evolves with time. Therefore, the data distribution is variable in time, hence it introduces a source of uncertainty.
+
+
+
+\section{Related Work}
+
+
+\subsection{\texorpdfstring{\acrfull{mcd}}{Monte-Carlo Dropout (MCD)}}
+
+This method is based on the idea that applying dropout to an architecture is mathematically equivalent to approximating it as a deep Gaussian process, this allows us to model the output distribution of a prediction by running $N$ inferences over the network and calculating it's mean and variance. \cite{gal2016dropout}\cite{oneactua2021evaluation}
+
+% Looks kinda CEM to me
+In \cite{aralikatti2018global} proposes using the uncertainty estimates generated by \acrshort{mcd} to train another neural network (referred to as \textit{Variance Network}) that takes as utterances from the multiple datasets with multiples levels of noise and tries to predict the variance of the base model. The problem this approach is trying to solve is the overhead of running inference multiple times in order to capture the output distribution and aims to solve this with the Variance network, so that we only need one run of the base model and one run of the variance network to get the output variance. They show that the worse the \acrshort{snr} the higher the uncertainty on their target datasets, an as the \acrshort{snr} improves, the uncertainty decreases
+
+On \cite{vyas2019analyzing} \acrshort{mcd} is used to estimate the \acrfull{wer} without using oracle transcriptions and to localize errors in the decoded ASR hypotheses, in this case they run the network 4 times to capture an utterance level estimation of the output distribution, to accomplish the error localization, the authors calculate the mean agreement between the \acrshort{mcd} runs and a run without dropout for each word in the utterance and evaluate if the confidence score for each word is above a predefined threshold then it's assume to be correct, else the word is considered a potential error.
+
+\subsection{Entropy based}
+
+One of the most common techniques in this space is temperature scaling, it consists on taking the logits, and dividing them by a scalar $T > 0$ called temperature, this parameter can \textit{control} the shape of the output distribution by smoothing it ($T > 1$) or collapsing it into one point($T < 1$) \cite{guo2017calibration} \cite{oneactua2021evaluation}. In general, temperature scaling for an observation $k$ can be modeled as:
+
+\begin{equation}\label{ec:ts}
+   \hat{p_{k}} = softmax\Bigg(\frac{logits_{k}}{T}\Bigg)
+\end{equation}
+
+Aside for temperature scaling, other methods have been proposed for confidence estimation, for example \cite{laptev2023fast} four variations. The normalized maximum probability confidence, defined as:
+\begin{equation}\label{ec:eb-nmpc}
+   F_{max}(p) = \frac{F(p) - \frac{1}{V}}{1 - \frac{1}{V}}
+\end{equation}
+Were $V$ represents the vocabulary size and $F(p)$ the probability of the most likely symbol for the prediction.
+
+The authors also suggest the linearly normalized Gibbs confidence using the Shannon entropy ($H_{sh}(p)$) and define it as:
+maximum probability confidence, defined as:
+\begin{equation}\label{ec:eb-lngc}
+   F_{g}(p) = 1 - H_{sh}(p)
+\end{equation}
+
+Later they use the Tsalis entropy ($H_{ts}(p)$) to define the linearly normalized Tsalis confidence:
+\begin{equation}\label{ec:eb-lntc}
+   F_{ts}(p) = 1 - \frac{H_{ts}(p)}{maxH_{ts}(p)}
+\end{equation}
+
+And finally, the Réyni entropy ($H_{r}(p)$) to define the linearly normalized Réyni confidence:
+\begin{equation}\label{ec:eb-lnrc}
+   F_{r}(p) = 1 - \frac{H_{r}(p)}{maxH_{r}(p)}
+\end{equation}
+
+The study concludes with the Tsalis confidence score with exponential normalization and minimum aggregation function to be the best performer among all the other combinations tested.
+
+A recurring limitation of temperature scaling is that the fitted temperature is tied to the distribution of the calibration data, so its benefits erode when the deployment distribution differs. This has motivated multi-domain and attention-based extensions that seek temperatures robust to such shift \cite{yu2022robust}\cite{mozafari2018attended}, a fragility that this work observes empirically when moving from calibration to test data.
+
+\subsection{Ensembles}
+
+Very similar to the strategy used in \acrshort{mcd} ensembles are usually used as a way to model the output distribution in such a way that the prediction can be averaged and the variance for it can be calculated among all the models in the ensemble\cite{oneactua2021evaluation}.
+
+This technique allows to be combined with others like \acrshort{mcd} or entropy based methods, like in \cite{gitman2023confidence} where the prediction is given a confidence score using Gibbs, Tsalis and Réyni's entropy. Once each prediction has been scored, the authors trained a logistic regression model using the scores and the audio samples, in order to select which prediction is going to be the output of the ensemble, this is called the \textit{model selection block} and can be replaced for any other model or rule to select the output result.
+Also in \cite{tu2022unsupervised} the authors combine the use of ensembles, with temperature scaling to calibrate the outputs and \acrshort{mcd} to quantify the uncertainty and the entropy of the predictions made by the ensemble.
+
+
+\subsection{Sequence-level Uncertainty from Sample Agreement}\label{sec:sample_agreement}
+
+For structured outputs such as transcriptions, uncertainty cannot be read off a single token probability, and aggregating token-level confidences is known to be brittle; \cite{malinin2020uncertainty} formalize uncertainty estimation for autoregressive structured prediction and highlight the gap between token- and sequence-level measures. A productive alternative derives uncertainty from the agreement among multiple sampled hypotheses: \cite{kuhn2023semantic} group semantically equivalent generations to compute a semantic entropy for language generation, and \cite{fomicheva2020unsupervised} combine \acrshort{mcd} with the similarity between sampled translations to estimate machine-translation quality without references. Closer to our setting, confidence estimation has been studied for attention-based sequence-to-sequence recognizers \cite{li2021confidence}, and dropout-based uncertainty has been used to detect adversarial audio attacks \cite{jayashankar2020detecting}.
+
+This work builds on that family of methods for \acrshort{asr}. Following \cite{rodriguez2024uncertainty}, who motivate the use of agreement between sampled transcriptions as an error signal, we summarize the disagreement among the transcriptions sampled by \acrshort{mcd} using the Levenshtein distance, a formulation tailored to the discrete, variable-length nature of \acrshort{asr} output. The resulting method is \acrfull{lmcd}, defined in the \nameref{chapter:methodology} chapter.
+
+\subsubsection{Levenshtein Distance.}
+The Levenshtein distance \cite{levenshtein1966binary} between two strings is the minimum number of single-character insertions, deletions, and substitutions required to transform one string into the other. For two transcriptions $s_a$ and $s_b$ we normalize it by the length of the longer string to obtain a value in $[0, 1]$:
+\begin{equation}
+   d(s_a, s_b) = \frac{\operatorname{lev}(s_a, s_b)}{\max(|s_a|, |s_b|)},
+\end{equation}
+where $\operatorname{lev}(\cdot, \cdot)$ is the Levenshtein distance and $|s|$ is the character length of $s$. This normalized distance is the building block of the \acrshort{lmcd} uncertainty score.
+
+\section{Hyperparameter Optimization}\label{sec:hpo}
+
+The quality of every \acrshort{uq} method in this work depends on a single scalar hyperparameter: the temperature in \acrshort{ts} and the dropout rate in \acrshort{mcd} and \acrshort{lmcd}. Selecting these values is itself an optimization problem, and the objective we ultimately care about, the correlation between the uncertainty scores and the actual transcription errors, is non-differentiable, noisy to evaluate, and expensive to sample. These properties rule out gradient-based tuning and make exhaustive search costly. Hyperparameter optimization is a well-studied problem with a rich toolbox of model-free and model-based methods \cite{Feurer2019}, ranging from random search \cite{bergstra2012random} to Bayesian optimization \cite{snoek2012practical}.
+
+\subsection{Covariance Matrix Adaptation Evolution Strategy}
+When the objective is noisy, non-convex, and non-differentiable, evolutionary strategies are a natural fit. \acrfull{cmaes} \cite{hansen2001completely} is a derivative-free optimizer that maintains a multivariate normal distribution over the search space and, at each generation, samples a population of candidate solutions, evaluates their fitness, and adapts the distribution's mean and covariance toward the better candidates. By learning a full covariance model of the search distribution, it becomes robust to ill-conditioning, and it has been used to tune deep networks competitively with Bayesian optimization \cite{loshchilov2016cma}. In this work \acrshort{cmaes} is treated as a practical tool rather than a contribution: it tunes every method under an identical protocol and budget, so that the resulting comparison reflects the methods themselves rather than uneven manual tuning.

@@ -1,0 +1,79 @@
+\chapter{Hypothesis and Objectives}
+\label{chapter:hypothesis-objectives}
+\epigraph{``Another quote.''.}{\vspace{10pt}Another Author}
+
+\newpage
+
+
+On this chapter the formulation for the thesis project will be presented. The objectives with their corresponding deliverables will also be defined. And the last section will summarize the scope and limitations defined at the beginning of this work
+
+
+\todo{Research questions based on SOTA gaps}
+
+\section{Hypothesis}
+\label{section:hypothesis}
+
+The goal of this work is to improve explainability of the predictions made by \acrshort{ai} models by using confidence or uncertainty quantification techniques, the main focus will be on the Whisper\cite{radford2023robust} architecture using Spanish datasets. In order to do this, techniques like \acrshort{mcd}, \acrshort{lmcd} and \acrshort{ts} will be used to set a baseline where the uncertainty or confidence score in each prediction will be correlated to the \acrshort{wer} of that prediction using the Pearson coefficient, in such case the expectation is that predictions with low uncertainty are related to predictions with low \acrshort{wer}s and predictions with high uncertainty are correlated to high \acrshort{wer}s.
+
+Given that baseline, the hypothesis for this work can be defined as:
+
+``The usage of the proposed novel method (\todo{Future: name the proposed novel method once defined.}) in this research can achieve a Pearson coefficient of $0.9$ and therefore provide better results than the \acrshort{sota}.''
+
+\section{Objectives}
+\label{section:objectives}
+The current research established the following objectives:
+
+\subsection{Main Objective}
+\label{section:main-objective}
+\label{objective:main}
+Improve \acrshort{sota} uncertainty quantification defined by \cite{rodriguez2024uncertainty} by at least \qty{20}{\percent} in the correlation with the \acrshort{wer} of the predictions made by the Whisper model on the SpaTrans\footnote{\UrlFont{https://huggingface.co/datasets/saul1917/SpaTrans\_UQ\_Bench\_raw.}} dataset.
+
+\subsection{Specific Objectives}
+\label{section:specific-objectives}
+
+The following specific objectives were completed in this work:
+
+\begin{enumerate}
+    \item Tune the state-of-the-art post-hoc \acrshort{uq} methods \acrshort{ts} and \acrshort{mcd} on equal footing using \acrshort{cmaes}, so that the comparison reflects the methods themselves rather than uneven manual tuning.
+
+    \item Formalize and tune a Levenshtein-based sample-agreement method, \acrshort{lmcd}, under the same protocol, building on the idea proposed by \cite{rodriguez2024uncertainty}.
+
+    \item Compare the three methods through the Pearson correlation between their uncertainty scores and the \acrshort{wer} on Spanish recordings, validating the differences with the Wilcoxon signed-rank test.
+\end{enumerate}
+
+The following objectives are kept as future work:
+\todo{Future-work objectives -- pick up when the novel method and metric are developed.}
+
+\begin{enumerate}
+    \item Propose a novel clear-box uncertainty quantification method that outperforms the state of the art using the Whisper model.
+
+    \item Propose one or more metrics to evaluate the reliability of the uncertainty quantification method for speech to text models.
+
+    \item Evaluate the proposed novel method against other state-of-the-art techniques, including \acrfull{fde}, using the proposed metrics in Spanish recordings.
+\end{enumerate}
+
+\subsection{Deliverables}
+This section sets the expectations for each deliverable and how it relates to the objectives. For the completed objectives, the deliverables are the mathematical formulation of each method, a reproducible test-bench that implements and tunes them, and the empirical comparison of their results.
+
+\textbf{Specific Objective 1:}
+The implementation of \acrshort{ts} and \acrshort{mcd} as tunable \acrshort{uq} methods together with their \acrshort{cmaes} tuning procedure, described in the \nameref{chapter:design} chapter and available in the project repository.
+
+\textbf{Specific Objective 2:}
+The mathematical formulation and implementation of \acrshort{lmcd}, including the medoid-based aggregation of stochastic transcriptions, described in the \nameref{chapter:methodology} and \nameref{chapter:design} chapters.
+
+\textbf{Specific Objective 3:}
+The empirical comparison of the three methods on the SpaTrans benchmark, including the Pearson correlation results and the Wilcoxon signed-rank validation, presented in the \nameref{chapter:results} chapter.
+
+\todo{Future deliverables: the theoretical bases and experimental setup for the proposed novel clear-box method and its reliability metric, together with the \acrshort{fde} comparison.}
+
+\section{Scope and Limitations}
+
+The scope and limitations of the research work will be presented in the next paragraphs.
+
+\textbf{Scope and limitation 1:}
+This work will be developed using the Whisper model and focusing on Spanish audios.
+
+\textbf{Scope and limitation 2:}
+The uncertainty quantification methods evaluated are \acrshort{mcd}, \acrshort{ts} and \acrshort{lmcd}, and the correlation with the \acrshort{wer} is calculated using the Pearson coefficient.\todo{Future: include \acrfull{fde} among the evaluated methods.}
+
+
